@@ -1,0 +1,1078 @@
+GRAVES, JIA, COELIAC, 
+MS, RA, T1D
+
+=========================================================
+RHEUMATOID ARTHRITIS
+=========================================================
+
+RA: /ipswich/data/chrisw/IChip/RA-control-data
+RA -- got 6 separate datasets by sample, or 24 separate datasets by chr
+
+## RUN SEXCHECKS ##
+cd /ipswich/data/chrisw/IChip/RA-control-data/ES_RA_immunochip_dataset
+plink --bfile iChip_RACI_PhaseII_ES_QCgp --check-sex --noweb --out /chiswick/data/ncooper/imputation/RA/ra1
+cd ../NL_RA_immunochip_dataset
+plink --bfile iChip_RACI_PhaseII_NL_QCgp --check-sex --noweb --out /chiswick/data/ncooper/imputation/RA/ra2
+cd ../SE-E_RA_immunochip_dataset
+plink --bfile iChip_RACI_PhaseII_SE-E_QCgp --check-sex --noweb --out /chiswick/data/ncooper/imputation/RA/ra3
+cd ../SE-U_RA_immunochip_dataset
+plink --bfile iChip_RACI_PhaseII_SE-U_QCgp --check-sex --noweb --out /chiswick/data/ncooper/imputation/RA/ra4
+cd ../UK_RA_immunochip_dataset
+plink --bfile iChip_RACI_PhaseII_UK_QCgp --check-sex --noweb --out /chiswick/data/ncooper/imputation/RA/ra5
+cd ../US_RA_immunochip_dataset
+plink --bfile iChip_RACI_PhaseII_US_QCgp --check-sex --noweb --out /chiswick/data/ncooper/imputation/RA/ra6
+2665/27351 'problem' in sexcheck
+
+fn <- character(6)
+fn[1] <- "ES_RA_immunochip_dataset/iChip_RACI_PhaseII_ES_QCgp"
+fn[2] <- "NL_RA_immunochip_dataset/iChip_RACI_PhaseII_NL_QCgp"
+fn[3] <- "SE-E_RA_immunochip_dataset/iChip_RACI_PhaseII_SE-E_QCgp"
+fn[4] <- "SE-U_RA_immunochip_dataset/iChip_RACI_PhaseII_SE-U_QCgp"
+fn[5] <- "UK_RA_immunochip_dataset/iChip_RACI_PhaseII_UK_QCgp"
+fn[6] <- "US_RA_immunochip_dataset/iChip_RACI_PhaseII_US_QCgp"
+parse.sexcheck(fn)
+
+
+print(load(cat.path(getwd(),"raAnnotSnpStats",ext="RData")))
+
+print(load("lookupICidsForRAids.RData"))
+
+ichip.ids <- ra.snp.name.lookup[match(clean.snp.ids(colnames(myMat[[1]])),ra.snp.name.lookup[,2]),1]
+for (cc in 1:6) { colnames(myMat[[cc]]) <- ichip.ids }
+
+ra <- myMat
+save(ra,file="raAnnotSnpStats.RData")
+
+
+RA - six sets of samples separately, then merge?. 
+
+### start ichip RA QC ###
+
+# hz: 0.14, 0.3
+# hwe: 10^-5
+# call.rate: samp = .98; snp = .98, maf = .005
+
+setwd(ra.dr)
+print(load("raAnnotSnpStats.RData"))
+# NB: build is currently 36, >31,132 SNPs already excluded
+
+# fix ids #
+
+for(cc in 1:6) {
+ if(length(which(!colnames(ra[[cc]]) %in% rownames(ic)))!=0) { stop("this test should pass") }
+}
+
+## SAMPLE QC ##
+cr <- c(.96,.97,.965,.97,.975,.925)
+for (cc in 1:6) {
+ assign(paste0("samp.qc.",cc),doSampQC(ra[[cc]], call.rate=cr[cc],het.lo=0.14,het.hi=0.3))
+}
+
+for (cc in 1:6) {
+  sqc <- get(paste0("samp.qc.",cc))
+  het.density.plots(het=sqc$SAMPLE.INFO$heterozygosity,dir="./QC",het.lo=0.14,het.hi=0.3,fn=paste0("HZDistribution",cc,".pdf"))
+  pdf(paste0("./QC/sampCallRateDensity",cc,".pdf")) ; 
+  plot(density(sqc$SAMPLE.INFO$call.rate),xlim=c(0.90,1)); 
+  dev.off(); 
+  call.rate.summary(sqc$SAMPLE.INFO,print=T)
+  # sex check files  #
+  sex.fn <- paste0("ra",cc,".sexcheckfail.txt")
+  assign(paste0("sex.excl",cc), readLines(sex.fn))
+  assign(paste0("initial.samp.excl.",cc),with(sqc,unique(c(HZ.EXCL, CR.EXCL))))
+  assign(paste0("samp.excl.",cc),unique(c(get(paste0("initial.samp.excl.",cc)),get(paste0("sex.excl",cc)))))
+}
+
+send.to.pwf(c(paste0("./QC/HZDistribution",1:6,".pdf"),
+             paste0("./QC/sampCallRateDensity",1:6,".pdf")))
+
+samp.excl <- c(samp.excl.1,samp.excl.2,samp.excl.3,samp.excl.4,samp.excl.5,samp.excl.6)
+
+### SNP QC ###
+
+cr <- rep(.99,6) ; #cr[4] <- .96
+#c(.96,.97,.965,.97,.975,.925)
+hw <- rep(10^-5,6)
+
+for (cc in 1:6) {
+ assign(paste0("snp.qc.",cc),doSnpQC(ra[[cc]], call.rate=cr[cc],hwe.p.thr=hw[cc],maf.thr=.005, autosomes.only=FALSE))
+}
+
+# back to SNP-QC #
+
+# PRE exclusions are those that were already excluded in the available files
+# NB: same list for .1 and .2 so combining
+PRE.EXCL <- rownames(ic)[(which(!rownames(ic) %in% colnames(ra[[1]])))]
+if(!(length(PRE.EXCL)+length(colnames(ra[[1]])))==196524) { stop("this test should be true") }
+
+# init lists
+initial.snp.excl <- combined.snp.excl <- unique.snp.excl <- useD <- doubleups <-  vector("list",6)
+
+for (cc in 1:6) {
+  sqc <- get(paste0("snp.qc.",cc))
+  hwe.density.plots(Z.hwe =sqc$SNP.INFO$Z.hwe,dir="./QC",,hwe.thr=hw[cc],fn=paste0("HWEDistribution",cc,".pdf"))
+
+  hwe.vs.callrate.plots(sqc$SNP.INFO,dir="./QC",callrate.snp.thr=cr[cc],hwe.thr=hw[cc],fn=paste0("HWEvsCallrate",cc,".pdf")) ; 
+
+  call.rate.summary(sqc$SNP.INFO,print=T)
+
+  pdf(paste0("./QC/snpCallRateDensity",cc,".pdf"))
+   plot(density(sqc$SNP.INFO$call.rate),xlim=c(0.9,1)); 
+  dev.off()
+  with(sqc, prv(HWE.EXCL, CR.EXCL, MAF.EXCL))
+
+  initial.snp.excl[[cc]] <- with(sqc,unique(c(HWE.EXCL, CR.EXCL, MAF.EXCL)))
+  combined.snp.excl[[cc]] <- c(initial.snp.excl[[cc]], PRE.EXCL)
+}
+
+
+send.to.pwf(c(paste0("./QC/HWEDistribution",1:6,".pdf"),
+             paste0("./QC/HWEvsCallrate",1:6,".pdf"),
+             paste0("./QC/snpCallRateDensity",1:6,".pdf")
+))
+
+snp.excl <- unique(unlist(combined.snp.excl))
+
+for (cc in 1:6) { 
+  unique.snp.excl[[cc]] <- combined.snp.excl[[cc]][!combined.snp.excl[[cc]] %in% unlist(combined.snp.excl[-cc])]
+}
+
+unique.snp.excl.all <- unlist(unique.snp.excl)
+dup.mat <- reader("../iChipDupPairs.RData")
+
+############
+NO DUPS - already pre-excluded it seems!
+############
+
+
+## FINISH UP ##
+
+for(cc in 1:6) {
+  writeLines(initial.snp.excl[[cc]],con=paste0("snpsExcluded",cc,".txt"))
+  writeLines(get(paste0("samp.excl.",cc)),con=paste0("sampsExcluded",cc,".txt"))
+}
+
+writeLines(PRE.EXCL,con="snpsPreExcludedAll.txt")
+writeLines(snp.excl,con="snpsExcludedAll.txt")
+writeLines(samp.excl,con="sampsExcludedAll.txt")
+
+save(snp.qc.1,snp.qc.2,snp.qc.3,snp.qc.4,snp.qc.5,snp.qc.6,samp.qc.1,samp.qc.2,samp.qc.3,samp.qc.4,samp.qc.5,samp.qc.6, sex.excl.1, sex.excl.2, sex.excl.3, sex.excl.4, sex.excl.5, sex.excl.6 ,PRE.EXCL,file="./QC/ALL_QC_Objects.RData")
+
+#system("mv ms*txt ./QC/")
+#system("mv monomorphic.txt ./QC/")
+
+# EXCLUDED 1 samples, 55,914/54,799;57,623 SNPs #
+
+#### end ichip MS #####
+
+# MS WTCCC2 #
+/ipswich/data/chrisw/MS-sawcer/WTCCC2/CCC2_Controls_Illu58C
+/ipswich/data/chrisw/MS-sawcer/WTCCC2/CCC2_Controls_IlluNBS
+/ipswich/data/chrisw/MS-sawcer/WTCCC2/CCC2_Cases_UKC
+/ipswich/data/chrisw/MS-sawcer/WTCCC2/CCC2_Cases_UKN
+/ipswich/data/chrisw/MS-sawcer/WTCCC2/CCC2_Cases_UKP
+/ipswich/data/chrisw/MS-sawcer/WTCCC2/CCC2_Cases_UKW
+
+fn <- "/chiswick/data/ncooper/imputation/MS/msCase.sexcheck"
+parse.sexcheck(fn)
+fn <- "/chiswick/data/ncooper/imputation/MS/msControl.sexcheck"
+parse.sexcheck(fn)
+## none failed ##
+
+
+ii5 <- doSnpQC(ms[[2]])
+
+snpMatLst <- sync.snpmat.with.info(snpMatLst,snp.info=NULL,
+                                    sample.info[sample.info$QCfail==0,],dir=dir,n.cores=l.cores)
+
+
+
+
+=========================================================
+TYPE 1 DIABETES
+=========================================================
+
+T1D - chris has been working, already QC-ed, but for dup snps need to choose better ones
+
+/ipswich/data/Immunochip/PLINK/distribution/cbr-postqc-duplicate-samples.txt
+/ipswich/data/Immunochip/PLINK/distribution/dilt1d-postqc-duplicate-samples.txt
+/ipswich/data/Immunochip/PLINK/distribution/sanger-controls-postqc-duplicate-samples.txt
+/ipswich/data/Immunochip/PLINK/distribution/t1d-cases-postqc-duplicate-samples.txt
+/ipswich/data/Immunochip/PLINK/distribution/uva-controls-postqc-duplicate-samples.txt
+/ipswich/data/Immunochip/PLINK/distribution/cbr-postqc-sexcheck-samples.txt
+/ipswich/data/Immunochip/PLINK/distribution/dilt1d-postqc-sexcheck-samples.txt
+/ipswich/data/Immunochip/PLINK/distribution/sanger-controls-postqc-sexcheck-samples.txt
+/ipswich/data/Immunochip/PLINK/distribution/t1d-cases-postqc-sexcheck-samples.txt
+/ipswich/data/Immunochip/PLINK/distribution/uva-controls-postqc-sexcheck-samples.txt
+
+* investigate her code to see what she needs
+* consider splitting cases and controls
+* consider conversion to aSnpMatrix format
+
+t1.dr <- "/chiswick/data/ncooper/imputation/T1D/"
+
+snpMatVec <- cat.path(t1.dr,fn="CHR",suf=1:22,ext="RData")
+
+setwd(t1.dr)
+smp <- reader("/chiswick/data/ncooper/iChipData/sample.info.RData")
+snp.excl <- "/chiswick/data/ncooper/imputation/T1D/snpsExcluded.txt"
+smp.excl <- "/chiswick/data/ncooper/imputation/T1D/sampsExcluded.txt"
+pq.dir <- "/chiswick/data/ncooper/imputation/T1D/PQDATA"
+for (cc in 13:22) {
+  print(load(snpMatVec[cc]))
+  x <- gt.for.impute
+  si <- sup.for.impute
+  aSnpMat <- annot.sep.support(x,si,smp, snp.excl=snp.excl, samp.excl=smp.excl)
+  asnp <- split.pq(aSnpMat) # gives list with arm.p, arm.q
+  if(!is.list(asnp)) {
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="q",ext="RData")
+    arm.q <- asnp
+    save(arm.q,file=ofn); cat("wrote file",ofn,"\n")
+  } else {
+    arm.p <- asnp[[1]]; arm.q <- asnp[[2]]
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="p",ext="RData")
+    save(arm.p,file=ofn); cat("wrote file",ofn,"\n")
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="q",ext="RData")
+    save(arm.q,file=ofn); cat("wrote file",ofn,"\n")
+  }
+}
+
+
+=========================================================
+JUVENILE IDIOPATHIC ARTHRITIS
+=========================================================
+
+JIA: /chiswick/data/store/immunochip/JIA/
+JIA - one dataset
+fn <- "/chiswick/data/ncooper/imputation/JIA/jia.sexcheck"
+parse.sexcheck(fn)
+
+## RUN SEXCHECKS ##
+cd /chiswick/data/store/immunochip/JIA/plink_dataset_files/
+plink --bfile Immunochip_JIA_PhaseIInew_QCgp_All_SNPQC_UKonly --check-sex --noweb --out /chiswick/data/ncooper/imputation/JIA/jia
+
+# hz: 0.14, 0.3
+# hwe: 10^-5
+# call.rate: samp = .98; snp = .98, maf = .005
+
+setwd(ja.dr)
+print(load("jiaAnnotSnpStats.RData"))
+# NB: build is currently 36, some QC already was done, used different ids for many SNPs
+
+# fix ids #
+colnames(jia) <- clean.snp.ids(colnames(jia))
+print(load("lookupICidsForJIAids.RData"))
+ichip.ids <- jia.snp.name.lookup[match(colnames(jia),jia.snp.name.lookup[,2]),1]
+colnames(jia) <- ichip.ids
+save(jia,file="jiaAnnotSnpStats.RData")
+
+## SAMPLE QC ##
+samp.qc <- doSampQC(jia, call.rate=0.98,het.lo=0.14,het.hi=0.3)
+
+het.density.plots(het=samp.qc$SAMPLE.INFO$heterozygosity,dir="./QC",het.lo=0.14,het.hi=0.3); send.to.pwf("./QC/HZDistribution.pdf")
+
+pdf("./QC/sampCallRateDensity.pdf") ; plot(density(samp.qc$SAMPLE.INFO$call.rate),xlim=c(0.97,1)); dev.off(); send.to.pwf("./QC/sampCallRateDensity.pdf")
+
+call.rate.summary(samp.qc$SAMPLE.INFO,print=F)
+
+sex.fn <- "jia.sexcheckfail.txt"
+
+initial.samp.excl <- with(samp.qc,unique(c(HZ.EXCL, CR.EXCL)))
+sex.excl <- readLines(sex.fn)
+samp.excl <- unique(c(initial.samp.excl,sex.excl))
+
+### SNP QC ###
+snp.qc <- doSnpQC(jia,call.rate=0.98,hwe.p.thr=10^-5,maf.thr=.005, autosomes.only=FALSE)
+
+# back to SNP-QC #
+hwe.density.plots(Z.hwe=snp.qc$SNP.INFO$Z.hwe,hwe.thr=10^-5,dir="./QC"); send.to.pwf("./QC/HWEDistribution.pdf")
+hwe.vs.callrate.plots(snp.qc$SNP.INFO,dir="./QC",callrate.snp.thr=.98,hwe.thr=10^-5) ; send.to.pwf("./QC/HWEvsCallrate.pdf")
+
+call.rate.summary(snp.qc$SNP.INFO,print=F)
+pdf("./QC/snpCallRateDensity.pdf") ; plot(density(snp.qc$SNP.INFO$call.rate),xlim=c(0.97,1)); dev.off(); send.to.pwf("./QC/snpCallRateDensity.pdf")
+
+with(snp.qc, prv(HWE.EXCL, CR.EXCL, MAF.EXCL))
+
+PRE.EXCL <- rownames(ic)[(which(!rownames(ic) %in% rownames(snp.qc$SNP.INFO)))]
+if(!(length(PRE.EXCL)+nrow(snp.qc$SNP.INFO))==196524) { stop("this test should be true") }
+
+initial.snp.excl <- with(snp.qc,unique(c(HWE.EXCL, CR.EXCL, MAF.EXCL)))
+combined.snp.excl <- c(initial.snp.excl, PRE.EXCL)
+
+DUPPOS.EXCL <- choose.dups.to.drop(snp.info=snp.qc$SNP.INFO, snp.excl= combined.snp.excl)
+
+snp.excl <- unique(c(initial.snp.excl,DUPPOS.EXCL))
+snp.excl2 <- unique(c(combined.snp.excl,DUPPOS.EXCL))
+
+## FINISH UP ##
+
+writeLines(snp.excl,con="snpsExcluded.txt")
+writeLines(snp.excl2,con="snpsExcluded2.txt")
+writeLines(samp.excl,con="sampsExcluded.txt")
+
+save(snp.qc,samp.qc,DUPPOS.EXCL, PRE.EXCL, sex.excl,file="./QC/ALL_QC_Objects.RData")
+
+system("mv jia*txt ./QC/")
+system("mv monomorphic.txt ./QC/")
+
+# EXCLUDED 3 samples, 42,920/68,412 SNPs #
+
+
+ja.dr <- "/chiswick/data/ncooper/imputation/JIA/"
+
+setwd(ja.dr)
+snp.excl <- "/chiswick/data/ncooper/imputation/JIA/snpsExcluded2.txt"
+smp.excl <- "/chiswick/data/ncooper/imputation/JIA/sampsExcluded.txt"
+pq.dir <- "/chiswick/data/ncooper/imputation/JIA/PQDATA"
+print(load("jiaAnnotSnpStats.RData"))
+
+## test whether conversion to build 37 is needed ##
+len36 <- length(which(jia@snps$position %in% start(get.support(build=36))))
+len37 <- length(which(jia@snps$position %in% start(get.support(build=37))))
+if(len36>len37) {
+  chrz <- paste(jia@snps$chromosome); 
+  chrz[chrz=="23"] <- "X"; chrz[chrz=="24"] <- "Y"
+  chrz[chrz=="25"] <- "X"; chrz[chrz=="26"] <- "MT"
+  new.pos <- conv.36.37(chr=chrz,pos=jia@snps$position,ids=rownames(jia@snps))[,"start"]
+  jia@snps$position <- as.integer(new.pos)
+}
+
+all.samps <- rownames(jia); all.snps <- colnames(jia)
+pass.samps <- all.samps[!all.samps %in% force.vec(smp.excl)]
+pass.snps <- all.snps[!all.snps %in% force.vec(snp.excl)]
+pre <- Dim(jia); jia <- jia[pass.samps,pass.snps]; post <- Dim(jia)
+cat("jia original size: ",comma(pre),"; new size after QC:",comma(post),"\n")
+
+for (cc in 1:22) {
+  nxt.chr <- get.chr(jia,cc)
+  asnp <- split.pq(nxt.chr) # gives list with arm.p, arm.q
+  if(!is.list(asnp)) {
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="q",ext="RData")
+    arm.q <- asnp
+    save(arm.q,file=ofn); cat("wrote file",ofn,"\n")
+  } else {
+    arm.p <- asnp[[1]]; arm.q <- asnp[[2]]
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="p",ext="RData")
+    save(arm.p,file=ofn); cat("wrote file",ofn,"\n")
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="q",ext="RData")
+    save(arm.q,file=ofn); cat("wrote file",ofn,"\n")
+  }
+}
+
+
+=========================================================
+GRAVES DISEASE
+=========================================================
+
+/ipswich/data/Immunochip/PLINK/distribution/graves-preqc.{bed,bim,fam}
+GRAVES - one dataset
+cp /ipswich/data/Immunochip/PLINK/distribution/graves-postqc-duplicate-samples.txt  /chiswick/data/ncooper/imputation/GRAVES/
+cp /ipswich/data/Immunochip/PLINK/distribution/graves-postqc-sexcheck-samples.txt /chiswick/data/ncooper/imputation/GRAVES/
+
+fn <- "/chiswick/data/ncooper/imputation/GRAVES/graves-postqc-sexcheck-samples.txt"
+parse.sexcheck(fn)
+
+cut -f 2 graves-postqc-duplicate-samples.txt | sed '1d' > graves-duplicates.txt
+# hz: 0.14, 0.3
+# hwe: 10^-6
+# call.rate: samp = .94; snp = .975, maf = .005
+
+setwd(gr.dr)
+print(load("gravesAnnotSnpStats.RData"))
+# build is 36
+
+# fix ids #
+colnames(graves) <- clean.snp.ids(colnames(graves))
+save(graves,file="gravesAnnotSnpStats.RData")
+
+## SAMPLE QC ##
+samp.qc <- doSampQC(graves, call.rate=0.94,het.lo=0.14,het.hi=0.3)
+het.density.plots(het=samp.qc$SAMPLE.INFO$heterozygosity,dir="./QC",het.lo=0.14,het.hi=0.3); send.to.pwf("./QC/HZDistribution.pdf")
+
+pdf("./QC/sampCallRateDensity.pdf") ; plot(density(samp.qc$SAMPLE.INFO$call.rate),xlim=c(0.9,1)); dev.off(); send.to.pwf("./QC/sampCallRateDensity.pdf")
+
+call.rate.summary(samp.qc$SAMPLE.INFO,print=F)
+
+sex.fn <- "graves-postqc-sexcheck-samplesfail.txt"
+dup.fn <- "graves-duplicates.txt" 
+
+initial.samp.excl <- with(samp.qc,unique(c(HZ.EXCL, CR.EXCL)))
+dup.excl <- readLines(dup.fn)
+sex.excl <- readLines(sex.fn)
+samp.excl <- unique(c(initial.samp.excl,dup.excl,sex.excl))
+
+### SNP QC ###
+snp.qc <- doSnpQC(graves,call.rate=0.975,hwe.p.thr=10^-6,maf.thr=.005, autosomes.only=FALSE)
+
+hwe.density.plots(Z.hwe=snp.qc$SNP.INFO$Z.hwe,hwe.thr=10^-6,dir="./QC"); send.to.pwf("./QC/HWEDistribution.pdf")
+hwe.vs.callrate.plots(snp.qc$SNP.INFO,dir="./QC",callrate.snp.thr=.975,hwe.thr=10^-6) ; send.to.pwf("./QC/HWEvsCallrate.pdf")
+
+call.rate.summary(snp.qc$SNP.INFO,print=F)
+pdf("./QC/snpCallRateDensity.pdf") ; plot(density(snp.qc$SNP.INFO$call.rate),xlim=c(0.9,1)); dev.off(); send.to.pwf("./QC/snpCallRateDensity.pdf")
+
+with(snp.qc,prv(HWE.EXCL, CR.EXCL, MAF.EXCL))
+
+initial.snp.excl <- with(snp.qc,unique(c(HWE.EXCL, CR.EXCL, MAF.EXCL)))
+
+DUPPOS.EXCL <- choose.dups.to.drop(snp.info=snp.qc$SNP.INFO, snp.excl= initial.snp.excl)
+
+
+snp.excl <- unique(c(initial.snp.excl,DUPPOS.EXCL))
+
+## FINISH UP ##
+
+writeLines(snp.excl,con="snpsExcluded.txt")
+writeLines(samp.excl,con="sampsExcluded.txt")
+
+save(snp.qc,samp.qc,DUPPOS.EXCL,dup.excl, sex.excl,file="./QC/ALL_QC_Objects.RData")
+
+system("mv graves*txt ./QC/")
+system("mv monomorphic.txt ./QC/")
+
+# EXCLUDED 74 samples, 57,761 SNPs #
+
+
+gr.dr <- "/chiswick/data/ncooper/imputation/GRAVES/"
+
+setwd(gr.dr)
+snp.excl <- "/chiswick/data/ncooper/imputation/GRAVES/snpsExcluded.txt"
+smp.excl <- "/chiswick/data/ncooper/imputation/GRAVES/sampsExcluded.txt"
+pq.dir <- "/chiswick/data/ncooper/imputation/GRAVES/PQDATA"
+print(load("gravesAnnotSnpStats.RData"))
+
+## test whether conversion to build 37 is needed ##
+len36 <- length(which(graves@snps$position %in% start(get.support(build=36))))
+len37 <- length(which(graves@snps$position %in% start(get.support(build=37))))
+if(len36>len37) {
+  chrz <- paste(graves@snps$chromosome); 
+  chrz[chrz=="23"] <- "X"; chrz[chrz=="24"] <- "Y"
+  chrz[chrz=="25"] <- "X"; chrz[chrz=="26"] <- "MT"
+  new.pos <- conv.36.37(chr=chrz,pos=graves@snps$position,ids=rownames(graves@snps))[,"start"]
+  graves@snps$position <- as.integer(new.pos)
+}
+
+all.samps <- rownames(graves); all.snps <- colnames(graves)
+pass.samps <- all.samps[!all.samps %in% force.vec(smp.excl)]
+pass.snps <- all.snps[!all.snps %in% force.vec(snp.excl)]
+pre <- Dim(graves); graves <- graves[pass.samps,pass.snps]; post <- Dim(graves)
+cat("graves original size: ",comma(pre),"; new size after QC:",comma(post),"\n")
+
+for (cc in 1:22) {
+  nxt.chr <- get.chr(graves,cc)
+  asnp <- split.pq(nxt.chr) # gives list with arm.p, arm.q
+  if(!is.list(asnp)) {
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="q",ext="RData")
+    arm.q <- asnp
+    save(arm.q,file=ofn); cat("wrote file",ofn,"\n")
+  } else {
+    arm.p <- asnp[[1]]; arm.q <- asnp[[2]]
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="p",ext="RData")
+    save(arm.p,file=ofn); cat("wrote file",ofn,"\n")
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="q",ext="RData")
+    save(arm.q,file=ofn); cat("wrote file",ofn,"\n")
+  }
+}
+
+
+=========================================================
+COELIAC DISEASE
+=========================================================
+
+COELIAC /ipswich/data/Immunochip/PLINK/distribution/coeliac-preqc.{bed,bim,fam}
+fn <- "coeliac-preqc"
+bed <- cat.path(dir1,fn,ext="bed"); bim <- cat.path(dir1,fn,ext="bim"); fam <- cat.path(dir1,fn,ext="fam")
+# family file has header row that erroneously gets read in #
+ff <- readLines(fam); fam <- basename(fam); writeLines(ff[-1], con=fam)
+coeliac <- annot.plink(read.plink(bed, bim, fam))
+unlink(fam)
+
+cp /ipswich/data/Immunochip/PLINK/distribution/coeliac-postqc-duplicate-samples.txt coeliac.duplicates.txt
+cut -f 2 coeliac.duplicates.txt | sed '1d' > coeliac-duplicates.txt
+
+## RUN SEXCHECKS ##
+cd /ipswich/data/Immunochip/PLINK/distribution/
+plink --bfile coeliac-preqc --check-sex --noweb --out /chiswick/data/ncooper/imputation/COELIAC/coeliac
+
+# don't run #
+#fn <- "/chiswick/data/ncooper/imputation/COELIAC/coeliac.sexcheck"
+#parse.sexcheck(fn)
+
+# hz: 0.14, 0.3
+# hwe: 10^-7
+# call.rate: samp = .95; snp = .95, maf = .005
+
+setwd(cl.dr)
+print(load("coeliacAnnotSnpStats.RData"))
+# build is 36, needed to remove header row from fam file before start 
+
+# fix ids #
+colnames(coeliac) <- clean.snp.ids(colnames(coeliac))
+if(length(which(!colnames(coeliac) %in% rownames(ic)))!=0) { stop("this test should pass") }
+save(coeliac,file="coeliacAnnotSnpStats.RData")
+
+## SAMPLE QC ##
+samp.qc <- doSampQC(coeliac, call.rate=0.95,het.lo=0.14,het.hi=0.3)
+het.density.plots(het=samp.qc$SAMPLE.INFO$heterozygosity,dir="./QC",het.lo=0.14,het.hi=0.3); send.to.pwf("./QC/HZDistribution.pdf")
+
+pdf("./QC/sampCallRateDensity.pdf") ; plot(density(samp.qc$SAMPLE.INFO$call.rate),xlim=c(0.9,1)); dev.off(); send.to.pwf("./QC/sampCallRateDensity.pdf")
+
+call.rate.summary(samp.qc$SAMPLE.INFO,print=F)
+
+dup.fn <- "coeliac-duplicates.txt"
+
+initial.samp.excl <- with(samp.qc,unique(c(HZ.EXCL, CR.EXCL)))
+dup.excl <- readLines(dup.fn)
+samp.excl <- unique(c(initial.samp.excl, dup.excl))
+
+
+### SNP QC ###
+snp.qc <- doSnpQC(coeliac,call.rate=0.95,hwe.p.thr=10^-7,maf.thr=.005, autosomes.only=FALSE)
+
+hwe.density.plots(Z.hwe=snp.qc$SNP.INFO$Z.hwe,hwe.thr=10^-7,dir="./QC"); send.to.pwf("./QC/HWEDistribution.pdf")
+
+hwe.vs.callrate.plots(snp.qc$SNP.INFO,dir="./QC",callrate.snp.thr=.95,hwe.thr=10^-7) ; send.to.pwf("./QC/HWEvsCallrate.pdf")
+
+call.rate.summary(snp.qc$SNP.INFO,print=F)
+pdf("./QC/snpCallRateDensity.pdf") ; plot(density(snp.qc$SNP.INFO$call.rate),xlim=c(0.9,1)); dev.off(); send.to.pwf("./QC/snpCallRateDensity.pdf")
+
+with(snp.qc,prv(HWE.EXCL, CR.EXCL, MAF.EXCL))
+
+initial.snp.excl <- with(snp.qc,unique(c(HWE.EXCL, CR.EXCL, MAF.EXCL)))
+
+DUPPOS.EXCL <- choose.dups.to.drop(snp.info=snp.qc$SNP.INFO, snp.excl=initial.snp.excl)
+
+snp.excl <- unique(c(initial.snp.excl,DUPPOS.EXCL))
+
+## FINISH UP ##
+
+writeLines(snp.excl,con="snpsExcluded.txt")
+writeLines(samp.excl,con="sampsExcluded.txt")
+
+save(snp.qc,samp.qc,DUPPOS.EXCL,dup.excl,file="./QC/ALL_QC_Objects.RData")
+
+system("mv coeliac*txt ./QC/")
+system("mv monomorphic.txt ./QC/")
+
+# EXCLUDED 170 samples, 94,903 SNPs #
+
+cl.dr <- "/chiswick/data/ncooper/imputation/COELIAC/"
+
+setwd(cl.dr)
+snp.excl <- "/chiswick/data/ncooper/imputation/COELIAC/snpsExcluded.txt"
+smp.excl <- "/chiswick/data/ncooper/imputation/COELIAC/sampsExcluded.txt"
+pq.dir <- "/chiswick/data/ncooper/imputation/COELIAC/PQDATA"
+print(load("coeliacAnnotSnpStats.RData"))
+
+## test whether conversion to build 37 is needed ##
+len36 <- length(which(coeliac@snps$position %in% start(get.support(build=36))))
+len37 <- length(which(coeliac@snps$position %in% start(get.support(build=37))))
+if(len36>len37) {
+  chrz <- paste(coeliac@snps$chromosome); 
+  chrz[chrz=="23"] <- "X"; chrz[chrz=="24"] <- "Y"
+  chrz[chrz=="25"] <- "X"; chrz[chrz=="26"] <- "MT"
+  new.pos <- conv.36.37(chr=chrz,pos=coeliac@snps$position,ids=rownames(coeliac@snps))[,"start"]
+  coeliac@snps$position <- as.integer(new.pos)
+}
+
+all.samps <- rownames(coeliac); all.snps <- colnames(coeliac)
+pass.samps <- all.samps[!all.samps %in% force.vec(smp.excl)]
+pass.snps <- all.snps[!all.snps %in% force.vec(snp.excl)]
+pre <- Dim(coeliac); coeliac <- coeliac[pass.samps,pass.snps]; post <- Dim(coeliac)
+cat("coeliac original size: ",comma(pre),"; new size after QC:",comma(post),"\n")
+
+for (cc in 1:22) {
+  nxt.chr <- get.chr(coeliac,cc)
+  asnp <- split.pq(nxt.chr) # gives list with arm.p, arm.q
+  if(!is.list(asnp)) {
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="q",ext="RData")
+    arm.q <- asnp
+    save(arm.q,file=ofn); cat("wrote file",ofn,"\n")
+  } else {
+    arm.p <- asnp[[1]]; arm.q <- asnp[[2]]
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="p",ext="RData")
+    save(arm.p,file=ofn); cat("wrote file",ofn,"\n")
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="q",ext="RData")
+    save(arm.q,file=ofn); cat("wrote file",ofn,"\n")
+  }
+}
+
+=========================================================
+MULTIPLE SCLEROSIS
+=========================================================
+
+MS - two sets of samples - WTCCC2 and Ichip, separately, plus own controls.  Then we impute, then we merge before analysis.
+MS: /ipswich/data/chrisw/MS-sawcer/MS_ICdata
+Cases_UKIC
+Controls_UKIC
+fn <- character()
+fn[1] <- "Cases_UKIC"
+fn[2] <- "Controls_UKIC"
+  ms <- vector("list",2)
+  for (cc in 1:2) {
+    bed <- cat.path(dir1,fn[cc],ext="bed"); bim <- cat.path(dir1,fn[cc],ext="bim"); fam <- cat.path(dir1,fn[cc],ext="fam")
+    ms[[cc]] <- annot.plink(read.plink(bed, bim, fam))
+  }
+names(ms) <- fn
+save(ms,file=cat.path(getwd(),"msICAnnotSnpStats",ext="RData"))
+
+## RUN SEXCHECKS ##
+cd /ipswich/data/chrisw/MS-sawcer/MS_ICdata/
+plink --bfile Cases_UKIC --check-sex --noweb --out /chiswick/data/ncooper/imputation/MS/msCase
+plink --bfile Controls_UKIC --check-sex --noweb --out /chiswick/data/ncooper/imputation/MS/msControl
+
+### start ichip MS QC ###
+
+# hz: 0.14, 0.3
+# hwe: 10^-5
+# call.rate: samp = .98; snp = .98, maf = .005
+
+setwd(ms.dr)
+print(load("msICAnnotSnpStats.RData"))
+# NB: build is currently 36, autosomes only
+
+# fix ids #
+colnames(ms[[1]]) <- clean.snp.ids(colnames(ms[[1]]))
+colnames(ms[[2]]) <- clean.snp.ids(colnames(ms[[2]]))
+if(length(which(!colnames(ms[[1]]) %in% rownames(ic)))!=0) { stop("this test should pass") }
+if(length(which(!colnames(ms[[2]]) %in% rownames(ic)))!=0) { stop("this test should pass") }
+save(ms,file="msICAnnotSnpStats.RData")
+
+## SAMPLE QC ##
+samp.qc.1 <- doSampQC(ms[[1]], call.rate=0.98,het.lo=0.14,het.hi=0.3)
+samp.qc.2 <- doSampQC(ms[[2]], call.rate=0.98,het.lo=0.14,het.hi=0.3)
+
+het.density.plots(het=samp.qc.1$SAMPLE.INFO$heterozygosity,dir="./QC",het.lo=0.14,het.hi=0.3,fn="HZDistribution1.pdf"); send.to.pwf("./QC/HZDistribution1.pdf")
+het.density.plots(het=samp.qc.2$SAMPLE.INFO$heterozygosity,dir="./QC",het.lo=0.14,het.hi=0.3,fn="HZDistribution2.pdf"); send.to.pwf("./QC/HZDistribution2.pdf")
+
+pdf("./QC/sampCallRateDensity1.pdf") ; plot(density(samp.qc.1$SAMPLE.INFO$call.rate),xlim=c(0.97,1)); dev.off(); send.to.pwf("./QC/sampCallRateDensity1.pdf")
+pdf("./QC/sampCallRateDensity2.pdf") ; plot(density(samp.qc.2$SAMPLE.INFO$call.rate),xlim=c(0.97,1)); dev.off(); send.to.pwf("./QC/sampCallRateDensity2.pdf")
+
+call.rate.summary(samp.qc.1$SAMPLE.INFO,print=F)
+call.rate.summary(samp.qc.2$SAMPLE.INFO,print=F)
+
+# sex check files all have NaN! #
+
+initial.samp.excl.1 <- with(samp.qc.1,unique(c(HZ.EXCL, CR.EXCL)))
+initial.samp.excl.2 <- with(samp.qc.2,unique(c(HZ.EXCL, CR.EXCL)))
+
+samp.excl.1 <- unique(c(initial.samp.excl.1))
+samp.excl.2 <- unique(c(initial.samp.excl.2))
+samp.excl <- c(samp.excl.1,samp.excl.2)
+
+### SNP QC ###
+snp.qc.1 <- doSnpQC(ms[[1]],call.rate=0.98,hwe.p.thr=10^-5,maf.thr=.005, autosomes.only=FALSE)
+snp.qc.2 <- doSnpQC(ms[[2]],call.rate=0.98,hwe.p.thr=10^-5,maf.thr=.005, autosomes.only=FALSE)
+
+# back to SNP-QC #
+hwe.density.plots(Z.hwe=snp.qc.1$SNP.INFO$Z.hwe,hwe.thr=10^-5,dir="./QC",fn="HWEDistribution1.pdf"); send.to.pwf("./QC/HWEDistribution1.pdf")
+hwe.density.plots(Z.hwe=snp.qc.2$SNP.INFO$Z.hwe,hwe.thr=10^-5,dir="./QC",fn="HWEDistribution2.pdf"); send.to.pwf("./QC/HWEDistribution2.pdf")
+
+hwe.vs.callrate.plots(snp.qc.1$SNP.INFO,dir="./QC",callrate.snp.thr=.98,hwe.thr=10^-5,fn="HWEvsCallrate1.pdf") ; send.to.pwf("./QC/HWEvsCallrate1.pdf")
+hwe.vs.callrate.plots(snp.qc.2$SNP.INFO,dir="./QC",callrate.snp.thr=.98,hwe.thr=10^-5,fn="HWEvsCallrate2.pdf") ; send.to.pwf("./QC/HWEvsCallrate2.pdf")
+
+call.rate.summary(snp.qc.1$SNP.INFO,print=F)
+call.rate.summary(snp.qc.2$SNP.INFO,print=F)
+
+pdf("./QC/snpCallRateDensity1.pdf") ; plot(density(snp.qc.1$SNP.INFO$call.rate),xlim=c(0.9,1)); dev.off(); send.to.pwf("./QC/snpCallRateDensity1.pdf")
+pdf("./QC/snpCallRateDensity2.pdf") ; plot(density(snp.qc.2$SNP.INFO$call.rate),xlim=c(0.9,1)); dev.off(); send.to.pwf("./QC/snpCallRateDensity2.pdf")
+
+with(snp.qc.1, prv(HWE.EXCL, CR.EXCL, MAF.EXCL))
+with(snp.qc.2, prv(HWE.EXCL, CR.EXCL, MAF.EXCL))
+
+# PRE exclusions are those that were already excluded in the available files
+# NB: same list for .1 and .2 so combining
+PRE.EXCL <- rownames(ic)[(which(!rownames(ic) %in% rownames(snp.qc.1$SNP.INFO)))]
+if(!(length(PRE.EXCL)+nrow(snp.qc.1$SNP.INFO))==196524) { stop("this test should be true") }
+
+initial.snp.excl.1 <- with(snp.qc.1,unique(c(HWE.EXCL, CR.EXCL, MAF.EXCL)))
+combined.snp.excl.1 <- c(initial.snp.excl.1, PRE.EXCL)
+initial.snp.excl.2 <- with(snp.qc.2,unique(c(HWE.EXCL, CR.EXCL, MAF.EXCL)))
+combined.snp.excl.2 <- c(initial.snp.excl.2, PRE.EXCL)
+combined.snp.excl <- unique(c(combined.snp.excl.1, combined.snp.excl.2))
+unique.snp.excl.1 <- combined.snp.excl.1[!combined.snp.excl.1 %in% combined.snp.excl.2]
+unique.snp.excl.2 <- combined.snp.excl.2[!combined.snp.excl.2 %in% combined.snp.excl.1]
+unique.snp.excl <- c(unique.snp.excl.1,unique.snp.excl.2)
+dup.mat <- reader("../iChipDupPairs.RData")
+
+############
+# EXPLORE dups excluded in either cases or controls #
+dvec <- unlist(dup.mat)
+use1d <- unique.snp.excl.1[which(unique.snp.excl.1 %in% dvec)]
+use2d <- unique.snp.excl.2[which(unique.snp.excl.2 %in% dvec)]
+PAIR.EXCL <- unique(c(use1d,use2d))
+dup.mat1 <- dup.mat; dup.mat2 <- dup.mat[,c(2,1)]
+comps1 <- dup.mat1[,2][match(use1d,dup.mat1[,1])]
+comps2 <- dup.mat2[,2][match(use1d,dup.mat2[,1])]
+comps <- narm(c(comps1,comps2))
+doubleups <- comps[comps %in% use2d] # confirmed length is 0, so no DUP snp has one excluded in cases, and the other in ctrls - phew!
+############
+
+# use only second file to choose which to exclude as it is bigger
+combined.snp.excl.2 <- unique(c(combined.snp.excl.2, PAIR.EXCL))
+
+DUPPOS.EXCL <- choose.dups.to.drop(snp.info=snp.qc.2$SNP.INFO, snp.excl= combined.snp.excl.2)
+
+snp.excl.1 <- unique(c(combined.snp.excl.1,DUPPOS.EXCL))
+snp.excl.2 <- unique(c(combined.snp.excl.2,DUPPOS.EXCL))
+snp.excl <- unique(c(snp.excl.1,snp.excl.2))
+
+## FINISH UP ##
+
+writeLines(snp.excl.1,con="snpsExcludedCase.txt")
+writeLines(snp.excl.2,con="snpsExcludedCtrl.txt")
+writeLines(snp.excl,con="snpsExcludedComb.txt")
+writeLines(samp.excl,con="sampsExcludedComb.txt")
+writeLines(samp.excl.1,con="sampsExcludedCase.txt")
+writeLines(samp.excl.2,con="sampsExcludedCtrl.txt")
+
+save(snp.qc.1,snp.qc.2,samp.qc.1,samp.qc.2,DUPPOS.EXCL, PAIR.EXCL ,PRE.EXCL,file="./QC/ALL_QC_Objects.RData")
+
+#system("mv ms*txt ./QC/")
+#system("mv monomorphic.txt ./QC/")
+
+# EXCLUDED 1 samples, 55,914/54,799;57,623 SNPs #
+
+#### end ichip MS #####
+
+# MS WTCCC2 #
+/ipswich/data/chrisw/MS-sawcer/WTCCC2/CCC2_Controls_Illu58C
+/ipswich/data/chrisw/MS-sawcer/WTCCC2/CCC2_Controls_IlluNBS
+/ipswich/data/chrisw/MS-sawcer/WTCCC2/CCC2_Cases_UKC
+/ipswich/data/chrisw/MS-sawcer/WTCCC2/CCC2_Cases_UKN
+/ipswich/data/chrisw/MS-sawcer/WTCCC2/CCC2_Cases_UKP
+/ipswich/data/chrisw/MS-sawcer/WTCCC2/CCC2_Cases_UKW
+
+fn <- "/chiswick/data/ncooper/imputation/MS/msCase.sexcheck"
+parse.sexcheck(fn)
+fn <- "/chiswick/data/ncooper/imputation/MS/msControl.sexcheck"
+parse.sexcheck(fn)
+## none failed ##
+
+## create sample.info ##
+MSDats <- list(CaseC, CaseN, CaseW, CaseP, Ctrl58, CtrlNB)
+names(MSDats) <- c("C","N","W","P","B58","NBS")
+allsamples <- lapply(MSDats,rownamesL)
+grp <- rep(names(allsamples),times=sapply(allsamples,length))
+samp.fns <- list(samp.c,samp.n, samp.w, samp.p, samp.b58,samp.nbs)
+samp.fls <- lapply(samp.fns,function(X) { x <- reader(X); return(x[-1,]) })
+sample.info <- do.call("rbind",args=samp.fls)
+sample.info[["grp"]] <- grp
+save(sample.info, file="/chiswick/data/ncooper/imputation/MS/WTCCC_MS_SampleSupport.RData")
+########################
+
+## create snp.info ##
+allsnpsCase <- colnamesL(MSDats[[1]],list=F)
+allsnpsCtrl <- colnamesL(MSDats[[5]],list=F)
+caseSnp <- read.table("/chiswick/data/ncooper/imputation/MS/WTCCC2/WTCCC2_SNPID_LOOKUP.tab",header=T)
+snp.info.case <- caseSnp
+save(snp.info.case, snp.info.ctrl, file="/chiswick/data/ncooper/imputation/MS/WTCCC_MS_SnpSupport.RData")
+# now need to look up chr and pos based on rs id
+snp.info.case[["Pos"]] <- conv.36.37(chr=gsub("chr","",snp.info.case$Chr),pos=snp.info.case$pos36)[,"start"]
+snp.info.ctrl[["Pos"]] <- conv.36.37(chr=gsub("chr","",snp.info.ctrl$Chr),pos=snp.info.ctrl$pos36)[,"start"]
+
+save(snp.info.case, snp.info.ctrl, file="/chiswick/data/ncooper/imputation/MS/WTCCC_MS_SnpSupportNew.RData")
+########################
+
+ms.dr <- "/chiswick/data/ncooper/imputation/MS/"
+
+WTCCC2.dir <- "/ipswich/data/chrisw/MS-sawcer/WTCCC2"
+subdir <- "CCC2_Cases_UKC/"
+fulldir <- cat.path(WTCCC2.dir,fn="",pref=subdir)
+outdir <- paste0(ms.dr,"WTCCC2/Cases_UKC")
+dat.fn <- list.files(fulldir)
+dat.fn <- cat.path(fulldir,dat.fn[grep(".gen.gz",dat.fn)])
+samp.fn <- cat.path("/ipswich/data/chrisw/MS-sawcer/WTCCC2","MS_UKC_illumina.sample",pref=subdir)
+sml <- impute.to.annot(dat.fn=dat.fn, samp.fn=samp.fn, combine=FALSE, HD=T,
+                    snpcol=1, out.pref="CHR", out.dir=outdir, verbose=TRUE)
+# CaseC  : 848 samples x 594398 SNPs
+
+subdir <- "CCC2_Cases_UKN/"
+fulldir <- cat.path(WTCCC2.dir,fn="",pref=subdir)
+outdir <- paste0(ms.dr,"WTCCC2/Cases_UKN")
+dat.fn <- list.files(fulldir)
+dat.fn <- cat.path(fulldir,dat.fn[grep(".gen.gz",dat.fn)])
+samp.fn <- cat.path("/ipswich/data/chrisw/MS-sawcer/WTCCC2","MS_UKN_illumina.sample",pref=subdir)
+sml <- impute.to.annot(dat.fn=dat.fn, samp.fn=samp.fn, combine=FALSE, HD=T,
+                    snpcol=2, out.pref="CHR", out.dir=outdir, verbose=TRUE)
+# CaseN  : 379 samples x 594398 SNPs
+
+subdir <- "CCC2_Cases_UKP/"
+fulldir <- cat.path(WTCCC2.dir,fn="",pref=subdir)
+outdir <- paste0(ms.dr,"WTCCC2/Cases_UKP")
+dat.fn <- list.files(fulldir)
+dat.fn <- cat.path(fulldir,dat.fn[grep(".gen.gz",dat.fn)])
+samp.fn <- cat.path("/ipswich/data/chrisw/MS-sawcer/WTCCC2","MS_UKP_illumina.sample",pref=subdir)
+sml <- impute.to.annot(dat.fn=dat.fn, samp.fn=samp.fn, combine=FALSE, HD=T,
+                    snpcol=2, out.pref="CHR", out.dir=outdir, verbose=TRUE)
+# CaseP : 312 samples x 594398 SNPs
+
+subdir <- "CCC2_Cases_UKW/"
+fulldir <- cat.path(WTCCC2.dir,fn="",pref=subdir)
+outdir <- paste0(ms.dr,"WTCCC2/Cases_UKW")
+dat.fn <- list.files(fulldir)
+dat.fn <- cat.path(fulldir,dat.fn[grep(".gen.gz",dat.fn)])
+samp.fn <- cat.path("/ipswich/data/chrisw/MS-sawcer/WTCCC2","MS_UKW_illumina.sample",pref=subdir)
+sml <- impute.to.annot(dat.fn=dat.fn, samp.fn=samp.fn, combine=FALSE, HD=T,
+                    snpcol=2, out.pref="CHR", out.dir=outdir, verbose=TRUE)
+# CaseW : 509 samples x 594398 SNPs
+
+subdir <- "CCC2_Controls_Illu58C/"
+fulldir <- cat.path(WTCCC2.dir,fn="",pref=subdir)
+outdir <- paste0(ms.dr,"WTCCC2/Controls_Illu58C")
+dat.fn <- list.files(fulldir)
+dat.fn <- cat.path(fulldir,dat.fn[grep(".gen.gz",dat.fn)])
+samp.fn <- cat.path("/ipswich/data/chrisw/MS-sawcer/WTCCC2","58C_illumina.sample",pref=subdir)
+sml <- impute.to.annot(dat.fn=dat.fn, samp.fn=samp.fn, combine=FALSE, HD=T,
+                    snpcol=2, out.pref="CHR", out.dir=outdir, verbose=TRUE)
+# Ctrl58 : 2930 samples x 1158122 SNPs
+
+subdir <- "CCC2_Controls_IlluNBS/"
+fulldir <- cat.path(WTCCC2.dir,fn="",pref=subdir)
+outdir <- paste0(ms.dr,"WTCCC2/Controls_IlluNBS")
+dat.fn <- list.files(fulldir)
+dat.fn <- cat.path(fulldir,dat.fn[grep(".gen.gz",dat.fn)])
+samp.fn <- cat.path("/ipswich/data/chrisw/MS-sawcer/WTCCC2","NBS_illumina.sample",pref=subdir)
+sml <- impute.to.annot(dat.fn=dat.fn, samp.fn=samp.fn, combine=FALSE, HD=T,
+                    snpcol=2, out.pref="CHR", out.dir=outdir, verbose=TRUE)
+# CtrlNB : 2737 samples x 1158122 SNPs
+
+subs <- c("Controls_Illu58C","Cases_UKW","Cases_UKP","Cases_UKN","Controls_IlluNBS","Cases_UKC")
+
+ms2.dr <- paste0("/chiswick/data/ncooper/imputation/MS/WTCCC2/",subs[1])
+
+snpMatVec <- cat.path(ms2.dr,fn="CHR",suf=1:22,ext="RData")
+/chiswick/data/ncooper/imputation/MS/snpsExcludedComb.txt
+setwd(ms2.dr)
+smp <- reader("/chiswick/data/ncooper/iChipData/sample.info.RData")
+snp.excl <- "/chiswick/data/ncooper/imputation/MS/WTCCC2/snpsExcludedCase.txt"
+snp.excl <- "/chiswick/data/ncooper/imputation/MS/WTCCC2/snpsExcludedCtrl.txt"
+smp.excl <- "/chiswick/data/ncooper/imputation/MS/WTCCC2/sampsExcludedComb.txt"
+pq.dir <- paste0("/chiswick/data/ncooper/imputation/MS/PQDATA/WTCCC2/",subs[1])
+for (cc in 13:22) {
+  print(load(snpMatVec[cc]))
+  x <- gt.for.impute
+  si <- sup.for.impute
+  aSnpMat <- annot.sep.support(x,si,smp, snp.excl=snp.excl, samp.excl=smp.excl)
+  asnp <- split.pq(aSnpMat) # gives list with arm.p, arm.q
+  if(!is.list(asnp)) {
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="q",ext="RData")
+    arm.q <- asnp
+    save(arm.q,file=ofn); cat("wrote file",ofn,"\n")
+  } else {
+    arm.p <- asnp[[1]]; arm.q <- asnp[[2]]
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="p",ext="RData")
+    save(arm.p,file=ofn); cat("wrote file",ofn,"\n")
+    ofn <- cat.path(pq.dir, pre="CHR",fn=cc,suf="q",ext="RData")
+    save(arm.q,file=ofn); cat("wrote file",ofn,"\n")
+  }
+}
+
+
+----
+then need to obtain chr, pos info for these WTCCC data
+compile the sample info
+make an annotSnpStats
+also make one for T1d
+split all into half chromosomes and combined all diseases and controls
+
+=========================================================
+
+
+ii5 <- doSnpQC(ms[[2]])
+
+snpMatLst <- sync.snpmat.with.info(snpMatLst,snp.info=NULL,
+                                    sample.info[sample.info$QCfail==0,],dir=dir,n.cores=l.cores)
+
+
+sample.info.from.annot
+snp.info.from.annot
+snp.from.annot
+samp.from.annot
+
+
+
+sampleQC
+add sex-checks and duplicates
+snpQC - do for separate datasets and if combining, all for one, one for all, else, knock out in individual datasets
+use plots
+duplicate positions
+
+
+
+## RECONSTRUCT snp IDS for JIA ##
+ic <- get.support(build=36)
+si <- snp.qc$SNP.INFO
+ii <- match(paste(chr2(si),start(si)),paste(chr(ic),start(ic)))
+dpz <- dup.pairs(ii)
+nn <- rownames(ic)[ii]
+rownames(si)[-dpz][!is.na(nn[-dpz])] <- nn[-dpz][!is.na(nn[-dpz])]
+
+get.from.rs <- (!rownames(si) %in% rownames(ic)) & (rownames(si) %in% id.to.rs(rownames(ic)))
+
+tr <- rs.to.id(rownames(si)[get.from.rs],multi.list=T)
+table(sapply(tr,length))
+#verified none had 2 options before next step
+rownames(si)[get.from.rs] <- rs.to.id(rownames(si)[get.from.rs])
+# last X chr stray
+rownames(si)[(which(!rownames(si) %in% rownames(ic)))] <- "vh_X_20114382"
+
+jia.snp.name.lookup <- data.frame(ichip.id=rownames(si),jia.id=rownames(snp.qc$SNP.INFO))
+save(jia.snp.name.lookup,file="lookupICidsForJIAids.RData")
+
+print(load("lookupICidsForJIAids.RData"))
+ichip.ids <- jia.snp.name.lookup[match(rownames(snp.qc$SNP.INFO),jia.snp.name.lookup[,2]),1]
+rownames(snp.qc$SNP.INFO) <- ichip.ids
+#############
+
+## RECONSTRUCT snp IDS for RA ##
+
+ra.snps <- clean.snp.ids(colnames(myMat[[1]])
+ic <- get.support(build=36)
+
+ra.new <- ra.snps
+indx <- match(ra.snps,jia.snp.name.lookup[[2]])
+ra.new[!is.na(indx)] <- paste(jia.snp.name.lookup[narm(indx),1])
+
+no.look <- which(!ra.new %in% rownames(ic))
+ra.unk <- ra.new[no.look]
+unk.sup <- myMat[[1]]@snps[ra.unk,]
+ra.chr <- unk.sup$chromosome
+ra.pos <- unk.sup$position
+ic.cp <- paste(chr(ic),pos(ic))
+ra.cp <- paste(ra.chr,ra.pos)
+the.dups <- ic[ic.cp %in% ra.cp][dup.pairs(ic.cp[ic.cp %in% ra.cp]),] #none
+dup.cp <- paste(chr(the.dups),pos(the.dups))
+ra.unk[ra.cp %in% dup.cp]  # hope there are none
+
+ra.snp.name.lookup <- data.frame(ichip.id=ra.new,ra.id=ra.snps)
+save(ra.snp.name.lookup,file="lookupICidsForRAids.RData")
+#############
+
+###
+# EXPLORE RA dups excluded in either cases or controls #
+# NONE!!
+dvec <- unlist(dup.mat)
+
+for (cc in 1:6) { useD[[cc]] <- unique.snp.excl[[cc]][which(unique.snp.excl[[cc]] %in% dvec)] }
+
+PAIR.EXCL <- unique(unlist(useD))
+dup.mat1 <- dup.mat; dup.mat2 <- dup.mat[,c(2,1)]
+
+for (cc in 1:6) {
+  comps1 <- dup.mat1[,2][match(useD[[cc]],dup.mat1[,1])]
+  comps2 <- dup.mat2[,2][match(useD[[cc]],dup.mat2[,1])]
+  comps <- narm(c(comps1,comps2))
+  doubleups[[cc]] <- comps[comps %in% unlist(useD[-cc])] 
+}
+
+prv(doubleups)
+  # confirmed length is 0?, so no DUP snp has one excluded in cases, and the other in ctrls - phew!
+
+  ss <- vector("list",6)
+  for (cc in 1:6) {
+    ss[[cc]] <- get(paste0("snp.qc.",cc))$SNP.INFO$call.rate
+  }
+  sss <- as.data.frame(ss)
+  colnames(sss) <- paste0("call.rate.",1:6)
+  ccc <- apply(sss,1,function(X) { X[X==min(X,na.rm=T)][1] })
+  snp.info.all <- snp.qc.1
+  snp.info.all$SNP.INFO[["call.rate"]] <- ccc
+
+DUPPOS.EXCL <- choose.dups.to.drop(snp.info= snp.info.all$SNP.INFO, snp.excl= PRE.EXCL)
+
+DUPPOS.EXCL
+#[1] NA
+##########
+
+GRAVES, JIA, COELIAC, MS, RA, T1D
+
+
+
+print(load("/chiswick/data/ncooper/imputation/SNPREF/lookupTableAllRSids.RData"))
+#bigRS
+print(load("/chiswick/data/ncooper/imputation/MS/WTCCC_MS_SnpSupport.RData"))
+#snp.info.case, snp.info.ctrl
+library(data.table)
+liltab <- bigRS[bigRS$rs.id %in% (snp.info.case[[1]]),]
+snp.info.case[["chr"]] <- liltab[match(snp.info.case[[1]],liltab$rs.id),"chr"]
+snp.info.case[["Pos"]] <- liltab[match(snp.info.case[[1]],liltab$rs.id),"pos"]
+
+liltab <- bigRS[bigRS$rs.id %in% (snp.info.ctrl[[1]]),]
+snp.info.ctrl[["chr"]] <- liltab[match(snp.info.ctrl[[1]],liltab$rs.id),"chr"]
+snp.info.ctrl[["Pos"]] <- liltab[match(snp.info.ctrl[[1]],liltab$rs.id),"pos"]
+
+head(rem)
+found.in.36 <- paste(more)[which(more %in% rem[,"rs.id"])]
+
+to.add.rs <- numz[which(numz2 %in% bigRS[,rs.id])]
+to.add.rs.b <- numz[which(!numz2 %in% bigRS[,rs.id])]
+found.with.rs <- paste0("rs",to.add.rs)
+
+illumina <- reader("/chiswick/data/ncooper/imputation/SNPREF/Human1M-Duov3_H_SNPlist.txt")
+ii <- match(snp.info.ctrl$rs.id,rownames(illumina))
+snp.info.ctrl[["chr"]][!is.na(ii)] <- illumina$Chr[narm(ii)]
+snp.info.ctrl[["pos"]][!is.na(ii)] <- illumina$MapInfo[narm(ii)]
+
+
+illumina <- reader("/chiswick/data/ncooper/imputation/SNPREF/Human660W-Quad_v1_H_SNPlist.txt")
+ii <- match(snp.info.case$rs.id,rownames(illumina))
+snp.info.case[["chr"]][!is.na(ii)] <- illumina$Chr[narm(ii)]
+snp.info.case[["pos"]][!is.na(ii)] <- illumina$MapInfo[narm(ii)]
+
+lo19 <- reader("/chiswick/data/ncooper/imputation/SNPREF/leftover19.tab")
+jj <- match(snp.info.case$rs.id,(lo19$name))
+snp.info.case[["chr"]][!is.na(jj)] <- lo19$chrom[narm(jj)]
+snp.info.case[["pos"]][!is.na(jj)] <- lo19$chromEnd[narm(jj)]
+
+print(load("/chiswick/data/ncooper/imputation/SNPREF/leftover470b37.RData"))
+jj <- match(snp.info.ctrl$rs.id,rownames(lo470c37))
+snp.info.ctrl[["chr"]][!is.na(jj)] <- lo470c37[,"chr"][narm(jj)]
+snp.info.ctrl[["pos"]][!is.na(jj)] <- lo470c37[,"start"][narm(jj)]
+
+bigmys <- snp.info.case$rs.id[is.na(snp.info.case$pos)][(which(!snp.info.case$rs.id[is.na(snp.info.case$pos)] %in% rownames(illumina)))]
+
+lo159 <- reader("/chiswick/data/ncooper/imputation/SNPREF/leftover159.tab")
+colnames(lo159) <- c("chr","pos","rs.id","strand")
+lo159$chr <- gsub("_random","",lo159$chr)
+lo159$chr <- gsub("5_h2_hap1","5",lo159$chr)
+lo159r <- data.frame.to.ranged(lo159)
+#length(which(duplicated(lo159r$rs.id)))
+lo159r <- lo159r[-which(duplicated(lo159r$rs.id)),]
+rownames(lo159r) <- lo159r[["rs.id"]]
+lo159r37 <- conv.36.37(lo159r)
+lo159c37 <- ranged.to.data.frame(lo159r37)
+save(lo159c37,file="/chiswick/data/ncooper/imputation/SNPREF/leftover159b37.RData")
+jj <- match(snp.info.ctrl$rs.id,rownames(lo159c37))
+snp.info.ctrl[["chr"]][!is.na(jj)] <- lo159c37[narm(jj),"chr"]
+snp.info.ctrl[["pos"]][!is.na(jj)] <- lo159c37[,"start"][narm(jj)]
+Dim(snp.info.ctrl[which(is.na(snp.info.ctrl$pos) & is.na(snp.info.ctrl$Pos)),])
+
+
+lo470 <- reader("/chiswick/data/ncooper/imputation/SNPREF/leftover470.tab")
+ colnames(lo470) <- c("chr","pos","rs.id","strand")
+lo470$chr <- gsub("_random","",lo470$chr)
+lo470r <- data.frame.to.ranged(lo470)
+length(which(duplicated(lo470r$rs.id)))
+lo470r <- lo470r[-which(duplicated(lo470r$rs.id)),]
+rownames(lo470r) <- lo470r[["rs.id"]]
+lo470r37 <- conv.36.37(lo470r,chain.file="/chiswick/data/ncooper/imputation/SNPREF/hg17ToHg19.over.chain")
+lo470c37 <- ranged.to.data.frame(lo470r37)
+save(lo470c37,file="/chiswick/data/ncooper/imputation/SNPREF/leftover470b37.RData")
+jj <- match(snp.info.ctrl$rs.id,rownames(lo470c37))
+snp.info.ctrl[["chr"]][!is.na(jj)] <- lo470c37[narm(jj),"chr"]
+snp.info.ctrl[["pos"]][!is.na(jj)] <- lo470c37[,"start"][narm(jj)]
+Dim(snp.info.ctrl[which(is.na(snp.info.ctrl$pos) & is.na(snp.info.ctrl$Pos)),])
+
+
+Controls: Illumina HumanHap 1.2M
+ Affymetrix v6.0 chip or the Illumina 660K
+
+rs11088262  21 	34203291 b36	35281421 b37
+rs9512222
+rs9486848  6 5..108720995 build 125  108614267 108614302 build 37
+rs9467529
+rs9466426
+rs777854 - BAD
+rs28632771
+
+
+rs11908296  20  47275067 b36  47841660 b37
