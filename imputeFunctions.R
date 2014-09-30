@@ -1,3 +1,5 @@
+options(ucsc="hg19")
+
 # internal function
 nam <- function(x) { y <- narm(x); return(y[y!="NA"]) }
 
@@ -16,6 +18,7 @@ nam <- function(x) { y <- narm(x); return(y[y!="NA"]) }
 # get.type - get data type of a vector, numeric or character, 
 # annot.sep.support - Create aSnpMatrix from SnpMatrix plus SNP/sample support files
 # split.pq - split an aSnpMatrix into a long and short arm (arm.p and arm.q)
+# coerce.chrname - coerce a chr list like (chr1, chr2, chr6_extra_bit,chrx) to (1,2,6,X)
 ##############################
 
 
@@ -793,22 +796,7 @@ read.hic <- function(fn, return.S4=TRUE, build=37) {
 
 # snp.list overlap with tissue HiC set (ends)
 #for big list
-#  subsetByOverlaps(otherEnd(cd4),fmSnps)
-#within set region for big list
-#  # promoters ends in region #
-#  reg.limit <- make.granges(chr=15,start=79*10^6,end=80*10^6)
-#  subsetByOverlaps(subsetByOverlaps(otherEnd(cd4),reg.limit),fmSnps)
-#  # one at a time
-#  subsetByOverlaps(otherEnd(cd4),subsetByOverlaps(fmSnps,reg.limit))
-#one at a time
-#  hit.subset <- subsetByOverlaps(fmSnps,otherEnd(cd4))
-#  hit.list <- lapply(as.list(1:length(hit.subset)),function(x) { subsetByOverlaps(otherEnd(cd4),hit.subset[x,]) })
-#  ff <- findOverlaps(otherEnd(cd4),fmSnps)
-#  ss <- subjectHits(ff)
-#  qq <- queryHits(ff)
-#  subs <- unique(ss)
-#  res.list <- lapply(subs, function(x) { qq[which(ss %in% x)] } )
-#  names(res.list) <- paste(subs); res.list <- res.list[order(as.numeric(names(res.list)))]
+
 snp.end.overlap <- function(snps, hic, index.only=FALSE, combine=TRUE, chr.only=NULL, range.only=NULL, bait=FALSE) {
   if(!is.null(rownames(snps))) { rn <- rownames(snps); nonames <- FALSE  } else { nonames <- TRUE }
   rownames(snps) <- init <- paste(1:nrow(snps))
@@ -838,7 +826,7 @@ snp.end.overlap <- function(snps, hic, index.only=FALSE, combine=TRUE, chr.only=
     index <- unique(unlist(res.list))
     if(index.only) { return(index) } else { return(hic[index,]) }
   } else {
-    if(!nonames) { nms <- rn[as.numeric(names(res.list))] ; print(nms) ; names(res.list) <- nms }
+    if(!nonames) { nms <- rn[as.numeric(names(res.list))] ; names(res.list) <- nms }
     if(index.only) { 
       return(res.list) 
     } else { 
@@ -850,14 +838,468 @@ snp.end.overlap <- function(snps, hic, index.only=FALSE, combine=TRUE, chr.only=
 }
 
 
-# test that it worked! (it did)
-#for(cc in 1:length(iii)) {
-#  nxt <- names(iii)[cc]
-#  fmSnps[nxt,]
-#  iii[[nxt]]
-#  if(unique(chr(iii[[nxt]]))!=unique(chr(fmSnps[nxt,]))) { stop(cc,"failed")}
-#  loop.tracker(cc,length(iii))
-#}
+
+
+### HERE ##
+if(F) {
+
+fmSnps2 <- fmSnps[!duplicated(start(fmSnps)),]
+nms <- paste(fmsnps$chr,fmsnps$start,sep="_")
+rs.list <- tapply(paste(fmsnps$rs.id),factor(nms),c)
+nms2 <- paste(chr(fmSnps2),start(fmSnps2),sep="_")
+rownames(fmSnps2) <- nms2
+rs.flat <- lapply(rs.list,paste,collapse=",")
+rs.all <- unlist(rs.list)
+
+print(load("/chiswick/data/ncooper/imputation/COMMON/SNPREFWorking/lookupTableAllRSids.RData"))
+index <- match(rs.all,bigRS$rs.id)
+result <- with(bigRS,cbind(coerce.chrname(chr[index]),pos[index]))
+rownames(result) <- rs.all
+result[is.na(result[,1]),2] <- as.numeric(Pos(paste(rs.all[is.na(result[,1])])))
+result[is.na(result[,1]),1] <- paste(Chr(paste(rs.all[is.na(result[,1])])))
+extras <- reader("~/Downloads/markers.csv") # from https://mart.immunobase.org/martanalysis/#!/Markers/maker_id_upload?
+result[is.na(result[,1]),1] <- paste(extras[[1]][match(rs.all[is.na(result[,1])],rownames(extras))])
+result[is.na(result[,1]),2] <- paste(extras[[2]][match(rs.all[is.na(result[,1])],rownames(extras))])
+# last three manually extracted from immunobase
+result[c("rs61281301","rs201801601","rs150652635","rs57151617","rs35072264","rs60969753"),1] <- c(12,17,3,17,7,7)
+result[c("rs61281301","rs201801601","rs150652635","rs57151617","rs35072264","rs60969753"),2] <- c(54755110,38774852,46345342,35286803,50324168,50295306)
+extras <- reader("~/Downloads/markers2.csv") # from https://mart.immunobase.org/martanalysis/#!/Markers/maker_id_upload?
+result[is.na(result[,2]),1] <- paste(extras[[1]][match(rs.all[is.na(result[,2])],rownames(extras))])
+result[is.na(result[,2]),2] <- paste(extras[[2]][match(rs.all[is.na(result[,2])],rownames(extras))])
+colnames(result) <- c("chr","pos")
+gresult <- data.frame.to.granges(result[-664,],build=37) # last one is 'NONE'
+rm(bigRS) # free up the memory
+plot.across.tissues(fmSnps2, gresult, hic.list, fn="tissuePlot", bait=FALSE, score.as.y=TRUE,snp.pch=17, ylim=c(0,20))
+plot.across.tissues(fmSnps2, gresult, list(CD4=cd4), fn="FulltissuePlotHiCChevronsWideCD4", bait=FALSE, score.as.y=TRUE,
+                    snp.pch=17, ylim=c(0,20), end.overlap=FALSE, plot.hic=TRUE, exp.pc=1.5, pdf.width=25)
+cdT <- read.hic("/chiswick/data/ncooper/imputation/HiC/TEST_cd4_otherCHR.txt")
+plot.hic(cdT[[6]],fn="cdTChr1Test",ylim=c(0,22),lty.join=c("dashed","dotted"))
+cd4_un <- cd4[!duplicated(start(cd4)),]
+cd4_un_ov <- subsetByOverlaps(cd4_un,fmSnps2)
+plot.across.tissues(cd4_un_ov, gresult, list(CD4=cd4), fn="BaitWisetissuePlotHiCChevronsWideCD4", bait=FALSE, score.as.y=TRUE,
+                    snp.pch=17, ylim=c(0,20), end.overlap=FALSE, plot.hic=TRUE, exp.pc=1.5, pdf.width=25)
+plot.across.tissues(bait(cd4_un_ov), gresult, list(CD4=cd4), fn="BaitWisetissuePlotHiCChevronsWideCD4", bait=FALSE, score.as.y=TRUE,
+                    snp.pch=17, ylim=c(0,20), end.overlap=FALSE, plot.hic=TRUE, exp.pc=.9, pdf.width=25, fit.both=TRUE)
+plot.across.tissues(bait(cd4_un_ov), gresult, list(CD4=cd4), fn="BaitWisetissue45PlotHiCChevronsWideCD4", bait=FALSE,
+                    score.as.y=TRUE, deg45=TRUE,snp.pch=17, ylim=c(0,20), end.overlap=FALSE, 
+                    plot.hic=TRUE, exp.pc=.9, pdf.width=25, fit.both=TRUE)
+
+}
+
+#ii1 <- (snp.end.overlap(fmSnps2,cd4,combine=FALSE))
+#ii2 <- (snp.end.overlap(fmSnps2,eryth,combine=FALSE))
+#ii3 <- (snp.end.overlap(fmSnps2,macro,combine=FALSE))
+#ii4 <- (snp.end.overlap(fmSnps2,mega,combine=FALSE))
+#ii5 <- (snp.end.overlap(fmSnps2,monoc,combine=FALSE))
+#All.Tissues <- list(CD4=ii1,Erythrocytes=ii2,Macrophages=ii3,Megakaryocytes=ii4,Monocytes=ii5)
+
+#hic.list <- list(CD4=cd4,Erythrocytes=eryth,Macrophages=macro,Megakaryocytes=mega,Monocytes=monoc)
+
+
+
+#' @param hic 'HiC' object, must only contain bait from 1 chromosome. Can use [[n]] to select only
+#' chromosome 'n', which can be the element number or name of the chromosome. Must also have
+#' length less than 1000, or if xlim is used, length within the specified window should be less than
+#' 1000.
+#' @param alt.y what values to use for the y-axis, can be "score" or "reads", or another 
+#' variable in the HiC object. Alternatively a vector of the same length as HiC can be passed into
+#' this parameter, although be careful with lengths if using in conjunction with 'xlim'.
+#' @param exp.pc numeric, expansion percentage, length to expand the graph either side of the range
+#' of the bait(s); although will be overridden if 'xlim' is in use
+#' @param fn filename for the output pdf, or leave blank to plot to the terminal
+#' @param build ucsc build, default is getOption("ucsc"), e.g, 36/hg18, 37/hg19, etc.
+#' @param verbose logical, whether to display a message when xlim is in use, and whether to use
+#' a progress bar for plots with more than 20 entries
+#' @param xlim limit for the x-axis, see plot(), but will also filter the 'hic' 
+#' object for only baits in this range
+#' @param ylim limit for the y-axis, see plot()
+#' @param y.FUN function to scale the y-axis values (e.g, 'score'). Default is 
+#' .default.score.fun(), see plot.across.tissues() for more details. Use 'c' (combination function)
+#'  to effectively turn this off (or NULL).
+#' @param join.scl percentage, vertical scale factor for the chevrons that join the bait and other
+#' end ranges, i.e, to control the height
+#' @param deg45 logical, if TRUE, make all chevrons join at 45 degree angles, else (FALSE), all
+#' chevrons will have the same height, and angle will be determined via the distance spanned.
+#' @param plot.new whether to draw the ranges specified in a new plot or add to existing
+#' @param col.bait colour for the bait ranges, can be length 1 (all the same), or the length of 
+#' hic (filtered), to specify specific colours for each range
+#' @param col.end colour for the other-end ranges, same restrictions as col.bait
+#' @param col.join colour for the joining chevrons, same restrictions as col.bait
+#' @param lwd.ranges line width for bait and other-end ranges
+#' @param lty.join line type for the joining chevrons, can use a character vector length 2 to
+#' specify a different line type from bait to centre, versus centre to 'other-end'.
+plot.hic <- function(hic, alt.y="score", exp.pc=.5, fn=NULL, build=NULL, verbose=TRUE,
+                     xlim=NULL, ylim=NULL, y.FUN=.default.score.fun, join.scl=1, deg45=FALSE, plot.new=TRUE,
+                     col.bait="black", col.end="red", col.join="black", lwd.ranges=2, lty.join="dotted") {
+  if(is(hic)[1]!="HiC") { stop("hic must be an object of type 'HiC', e.g, obtained reading a SeqMonk Hi-C file using read.hic()") }
+  main.chr <- unique(chr(hic))
+  if(is.null(build)) { build <- getOption("ucsc") }
+  build <- ucsc.sanitizer(build)
+  if(is.null(y.FUN)) { y.FUN <- c }
+  if(length(main.chr)>1) { stop("cannot plot bait data from multiple chromosomes") }
+  if(length(hic)>1000) { stop("hic has maximum length of 1000, set had ",length(hic),". Suggest plotting subsets for large datasets") }
+  if(!is.null(xlim)) {
+    xlim <- narm(as.numeric(xlim))
+    if(length(xlim)!=2) { stop("xlim should be an x-axis range, a numeric vector of length 2")}
+    range.limit <- make.granges(chr=main.chr,start=xlim[1],end=xlim[2])
+    if(is.null(rownames(hic))) { rownames(hic) <- paste(1:length(hic)) }
+    rn <- rownames(hic)
+    hic.set <- subsetByOverlaps(bait(hic),range.limit)
+    rn.sub <- rownames(hic.set)
+    to.keep <- match(rn.sub,rn)
+    ltk <- length(to.keep)
+    if(ltk<1) { 
+      warning("no hic entries found on ",Ranges.to.txt(range.limit))
+      if(plot.new){
+        plot(1,1,ylim=ylim, xlim=xlim, col="white", xlab=paste("Chromosome",main.chr),ylab=alt.y[1]) }
+      return() 
+    }
+    hic <- hic[to.keep,]
+    if(ltk>0 & verbose) { message(ltk," hic entries found on ",Ranges.to.txt(range.limit)) }
+  }
+  if(length(col.bait)!=1 & length(col.bait)!=length(hic)) { stop("col.bait must have length 1, or the same length as hic (including any filters)") }
+  if(length(col.end)!=1 & length(col.end)!=length(hic)) { stop("col.end must have length 1, or the same length as hic (including any filters)") }
+  all.chr <- c(chr(hic),chr2(hic))
+  if(is.character(fn) & length(fn)==1) { pdf(cat.path("",fn,ext="pdf")) } 
+  chrz <- unique(all.chr)
+  n.chr <- length(chrz)
+#  if(n.chr>2) { stop("cannot plot bait data that transitions across more than 1 other chromosome") }
+  all.locs <- c(start(hic[[main.chr]]), end(hic[[main.chr]]), start2(hic[[main.chr]]), end2(hic[[main.chr]]))
+  main.rng <- extend.50pc(range(all.locs),Chr=main.chr,snp.info=get.support(build=build),pc=exp.pc) # extend 50pc is from FunctionsCNVAnalysis.R
+  if(!is.null(alt.y)) {
+    if(is.numeric(alt.y)) {
+      if(length(alt.y)==1 | length(alt.y)==length(hic)) {
+        yy <- alt.y
+        y.column <- substitute(alt.y)
+      } else {
+        warning("alt.y ignored, must be same length as hic, or else length 1"); alt.y <- NULL
+      }
+    } else {
+      if(is.character(alt.y)) {
+        cn <- colnames(mcols(hic)); 
+        if(!alt.y %in% cn) { stop("y.axis column name ",alt.y," not found in 'ranged'") }
+        vec.y.FUN <- function(X) { out <- unlist(sapply(X,y.FUN)) }
+        y.column <- alt.y
+        mcols(hic)[,y.column] <- vec.y.FUN(mcols(hic)[,y.column]) # transform 'score' or 'reads'
+        df <- mcols(hic)
+        yy <- df[,alt.y]; rm(df); 
+      } else { 
+        warning("invalid value for alt.y, ignoring"); alt.y <- NULL
+      }
+    }
+  }
+  if(is.null(ylim)) { if(exists("yy")) { ylim <- range(c(0,yy)) } else { yy <- 1:length(hic); y.column <- "" } }
+  #prv(ylim,yy,alt.y)
+  # create a blank plotting area #
+  if(is.null(xlim)) { xlim <- main.rng }
+  if(plot.new) {
+    plot(1,1,ylim=ylim, xlim=xlim, col="white", xlab=paste("Chromosome",main.chr),ylab=y.column)
+  }
+  n.sets <- length(hic)
+  for (cc in 1:n.sets) {
+    p1 <- bait(hic[cc,]); p2 <- otherEnd(hic[cc,])
+    plot.ranges(p1,alt.y=alt.y,lwd=lwd.ranges, do.labs=F, col=col.bait,skip.plot.new=T)
+    c1 <- abs(end(p1)-start(p1))/2 + min(start(p1),end(p1))
+    c2 <- abs(end(p2)-start(p2))/2 + min(start(p2),end(p2))
+    yoffs <- (diff(ylim)/20)*join.scl
+    cp2 <- chrNums(p2); cp1 <- chrNums(p1)
+    if(chr(p2)!=chr(p1)) { 
+      sw <- if(cp2>cp1) { 1 } else { -1 }
+      xoffs <- (diff(xlim)/10)*join.scl*sw
+      coords <- rbind(c(c1,yy[cc]),
+                      c(c1+xoffs,yy[cc]+yoffs*2),
+                      c(c1+(xoffs*1.5),yy[cc]+yoffs*2))
+      lines(coords[1:2,],col=col.join,lty=lty.join[1])
+      lines(coords[2:3,],col=col.join,lty=lty.join[1])
+      arrows(coords[3,1],coords[3,2],coords[3,1]+xoffs/100,coords[3,2],length=.1)
+      text(coords[3,,drop=F],labels=paste0(Ranges.to.txt(p2)),cex=.5,pos=3+sw)
+#      message("for region ",cc,", 'other-end' had a different chromosome to the bait, plotting this is not yet implemented!")
+    } else {
+      midpt <- abs(c2-c1)/2 + min(c1,c2)
+      if(deg45) {
+        middst <- abs(c2-midpt)
+        yoffs <- middst*(diff(ylim)/diff(xlim)) # distance to make chevrons at fixed 45 degree angle
+      }
+      plot.ranges(p2,alt.y=alt.y,lwd=lwd.ranges, do.labs=F, col=col.end,skip.plot.new=T)
+      if(length(lty.join)==1) { lty.join <- rep(lty.join,2) }
+      lines(c(c1,midpt),yy[cc]+c(0,yoffs),col=col.join,lty=lty.join[1])
+      lines(c(midpt,c2),yy[cc]+c(yoffs,0),col=col.join,lty=lty.join[2])
+    }
+    if(n.sets>20 & verbose) { loop.tracker(cc,n.sets) }
+  }
+  ## make dual plot as mini window? or a mfrow thing? or on same plot?
+  if(is.character(fn) & length(fn)==1) { dev.off() } 
+}
+
+
+# default function to scale the HiC 'score' for plotting
+.default.score.fun <- function(x, scale.all=c, above=10, scale.above=sqrt, max=20) {
+  x <- scale.all(x)
+  u <- x[x>above]
+  lu <- length(u)
+  if(lu>0) { 
+    u <- u-above; u <- scale.above(u)
+    if(length(u)!=lu) { stop("invalid scale.above function, output changed length") } 
+    x[x>above] <- above+u
+  }
+  if(any(x>max)) { x[x>max] <- max }
+  return(x)
+}
+
+# internal
+midpoint <- function(x) {
+  u <- range(x,na.rm=T)
+  return(min(u) + (max(u)-min(u))/2)
+}
+
+#' @param regions GRanges object containing phenotype regions of interest to plot over, essentially
+#' an object specifying chr, start, end, and optionally 'band', e.g, 8q23.1, etc. You can create
+#' easily from standard vectors using make.granges()
+#' @param snps GRanges object containing SNPs tested for the study, essentially an object 
+#' specifying chr and pos, You can create easily from standard vectors using make.granges()
+#' @param hic.list list of HiC objects, see 'HiC()', assuming a separate HiC type element for each
+#' tissue. These objects can be imported from  Seqmonk browser 
+#' files (http://www.bioinformatics.babraham.ac.uk/projects/seqmonk/), or created using HiC().
+#' These contain start and end position information for the 'bait' and 'other end' of HiC data.
+#' They also contain read counts and scores, and lists of intersected promoters. The names
+#' of the elements of hic.list will be used as the labels for each tissue type in the plot
+#' @param fn character, name of the output pdf file, if null, will plot to standard graphics
+#' @param bait logical, whether to plot the bait regions for each tissue, or the 'other end's.
+#' @param end.overlap logical, whether to choose bait-end segments where the end overlaps the
+#' 'region' range (TRUE), or where the bait does (set to FALSE)
+#' @param fit.both logical, whether to ensure the xlim range covers both ends of bait-end pairs,
+#' (set TRUE) or whether just to fit the x axis range to the current 'region' from 'regions,
+#' plus the 'exp.pc' expansion factor.
+#' @param build character, ucsc build, e.g, 37/hg19 or 36/hg18, to use
+#' @param score.as.y character, which HiC column to take the y-axis values from, can be
+#' either 'reads' or 'score'. TRUE will use 'score', FALSE will use 'reads'.
+#' @param plot.hic logical, whether to plot bait and end joined by a chevron using the
+#' 'plot.hic()' function, or to just plot the bait/end as specified.
+#' @param deg45 logical, if plot.hic=TRUE, whether to use a fixed angle (TRUE) or a fixed
+#' height (FALSE) for the chevrons
+#' @param by.bait logical, if TRUE, then a separate plot will be made for each 'bait' rather
+#' than for each region ['regions']
+#' @param only.if.snp logical, if TRUE, only baits/regions overlapping at least one SNP
+#' shall be plotted, if FALSE, all baits intersection a 'region' will be plotted ['regions'].
+#' @param tissue.cols character, vector of colour names to use for each tissue type, should
+#'  be the same  length as hic.list, or longer (in which case only the first 'length(hic.list)'
+#'  colours will be used)
+#' @param genes.col character, single string to indicate the colour for the gene annotation,
+#' default is grey. Set to NULL to avoid plotting genes.
+#' @param reg.col character, single string to indicate the colour for the 'region' line,
+#' @param snp.pch see 'pch' in points(); symbol to use to plot SNPs (taken from 'snps' & 
+#' overlapping 'regions')
+#' @param ylim numeric, range, length 2, see ?plot parameter of the same name. Default is 0 to 20,
+#' assuming this is a good range for values of 'score', when scaled using the score.FUN().
+#' @param exp.pc percentage (eg, .5 = 50%) to expand plot either side of each 'region'. 
+#' @param pdf.width create a super-wide pdf to allow detail to be more easily discernible on the 
+#' screen (7 is the default)
+#' @param score.FUN function, transformation function for the variable specified in 'score.as.y',
+#'  e.g, score.
+#' For instance it may have infinite values, or you may wish to log transform, etc. Should take a 
+#' parameter x (length 1) and return a single value. The default function will scale anything 
+#' above 10 using sqrt() and caps the max at 20. Use NULL or 'c' (combination function) to 
+#' effectively turn this off.
+plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, end.overlap=!bait, fit.both=FALSE,
+                                build=NULL, score.as.y=TRUE, plot.hic=FALSE, deg45=FALSE, by.bait=FALSE, only.if.snp=TRUE,
+                                tissue.cols=c("red","blue","orange","green","brown"), genes.col="grey", 
+                                reg.col="black", snp.pch=17, ylim=c(0,20), exp.pc=.9, pdf.width=7,
+                                score.FUN=.default.score.fun) {
+  if(is(hic.list)[1]=="HiC") { stop("HiC object, rather than a list of HiC objects overlaps was entered") }
+  if(length(tissue.cols)<length(hic.list)) { stop("tissue.cols must have the same length as hic.list (or longer)") }
+  if(is.null(names(hic.list))) { names(hic.list) <- paste0("tissue.",1:length(hic.list)) ; 
+  warning("the list elements of hic.list did not have 'names()', so tissue types will be displayed in the legend simply
+          as tissue.1, tissue.2, ..., tissue.n")}
+  n.tissue <- length(hic.list)
+  tissue.cols <- tissue.cols[1:n.tissue] # take the first 'n' colours
+  if(!score.as.y) { y.column <- "reads" } else { y.column <- "score" }
+  if(is.character(fn) & length(fn)==1) { pdf(cat.path("",fn,ext="pdf"),width=pdf.width) } 
+  if(is.null(build)) { build <- getOption("ucsc") }
+  build <- ucsc.sanitizer(build)
+  if(bait) { end.extract <- ranges.bait } else { end.extract <- otherEnd }
+  gs <- get.gene.annot(build=build) # save loading each time in the loop
+  if(is.null(score.FUN)) { score.FUN <- c }
+  vec.score.FUN <- function(X) { out <- unlist(sapply(X,score.FUN)) }
+  All.Tissues <- as(hic.list,"list")
+  All.Tissues <- lapply(hic.list, function(x) { snp.end.overlap(regions,x,combine=FALSE,bait=!end.overlap) })
+  regions.orig <- regions # if not by.bait=TRUE, this is just a copy
+  if(by.bait) {
+    #### in the middle of implementing THIS #####
+    fit.both <- TRUE
+    regions <- Baits(as(hic.list,"HiCList"))
+#    regions <- hic.list[[1]][!duplicated(start(hic.list[[1]])),]
+    regions <- subsetByOverlaps(regions,regions.orig)
+    ## not sure if this should go here, or be more general and go after or before ##
+    if(only.if.snp) {
+      regions <- subsetByOverlaps(regions,snps)
+    }
+    ## now want to use the original region to plot the black line and the new region
+    ## to choose which things to plot
+    ###### OK HERE #######
+    ### ISSUE IS WITH ROWNAMES.. NOW INCONSISTENCIES HAVE OCCURRED###
+    ## need to review how this is managed.
+    ## perhaps force all chr_start 
+    ## or just match on chr_start instead?
+    ## have inserted chr_start rownames into Baits(), but not matching original fmSnps2
+    ## fun!
+  }
+  up.to <- length(regions)
+
+  # LOOP ONCE FOR EACH REGION (or bait if that option selected) #
+  for(cc in 1:up.to){
+    fi <- 1
+    nxt.chr <- chr(regions[cc,])
+    rng0 <- c(start(regions[cc,]), end(regions[cc,]))
+    rng <- extend.50pc(rng0,Chr=nxt.chr,snp.info=get.support(build=build),pc=exp.pc) # extend 50pc is from FunctionsCNVAnalysis.R
+    hi.ind <- match(rownames(regions)[cc],names(All.Tissues[[fi]]))
+    while(is.na(hi.ind) & fi<n.tissue) { fi <- fi+1; hi.ind <- match(rownames(regions)[cc],names(All.Tissues[[fi]])) }
+    if(!is.na(hi.ind)) {
+      ## only run if this index is found ##
+      if(fit.both) {
+        # make sure xlim is expanded to include maximum bait-end span in the region #
+        big.range <- NULL
+        for (ee in (fi):n.tissue) {
+          #### think i FIXed THIS #####
+          hi.ind <- match(rownames(regions)[cc],names(All.Tissues[[ee]]))
+          if(!is.na(hi.ind)) {
+            AA <- All.Tissues[[ee]] # which is broken? how?
+            #print(length(AA)); print(head(AA))
+            aa <- AA[[hi.ind]] # which is broken?
+            ba <- bait(aa)
+            oe <- otherEnd(aa); oe[(chr(aa)!=chr2(aa)),] <- ba[(chr(aa)!=chr2(aa)),]  # i.e, don't allow another chr range into mix
+            big.range <- range(c(big.range,start(ba),end(ba),start(oe),end(oe)),na.rm=TRUE)
+          }
+        }
+        if(all(!is.na(big.range))) { rng <- big.range } # set rng to maximum width of any bait/end in the set
+      }
+      hic.rngz <- All.Tissues[[fi]][[hi.ind]]
+      if(is.null(hic.rngz)) { next } # if 
+      rngz <- end.extract(hic.rngz)
+      mcols(rngz)[,y.column] <- vec.score.FUN(mcols(rngz)[,y.column]) # transform 'score' or 'reads'
+      ### PLOT A BLANK CANVAS ###
+      plot(NA,NA,col="white",ylim=ylim, xlim=rng,xlab=paste("Chromosome",nxt.chr),ylab=y.column)
+      ## PLOT BAIT AND END FOR THE FIRST TISSUE ##
+#       if(plot.hic) {
+#         plot.hic(hic.rngz, alt.y=y.column, exp.pc=exp.pc, fn=NULL, build=build, verbose=FALSE,
+#                              xlim=rng, ylim=ylim, y.FUN=c, join.scl=1, plot.new=TRUE, deg45=deg45,
+#                              col.bait=tissue.cols[fi], col.end=tissue.cols[fi], col.join="black",
+#                              lwd.ranges=2, lty.join=c("dashed","dotted")[2])
+#       } else {
+#         plot.ranges(rngz,alt.y=y.column,lwd=2,
+#                   ylim=ylim, xlim=rng,do.labs=F, col=tissue.cols[fi], xlab=paste("Chromosome",nxt.chr),ylab=y.column)
+#       }
+      if(n.tissue>0 & fi<n.tissue) {
+        ## PLOT BAIT AND END FOR EACH TISSUE ##
+        for (dd in (fi):n.tissue) {
+          hi.ind <- match(rownames(regions)[cc],names(All.Tissues[[dd]]))
+          if(!is.na(hi.ind)) {
+            hic.rngz <- All.Tissues[[dd]][[hi.ind]]
+            rngz <- end.extract(hic.rngz)
+            #print(dd)
+            mcols(rngz)[,y.column] <- vec.score.FUN(mcols(rngz)[,y.column]) # transform 'score' or 'reads'
+            if(plot.hic) {
+              plot.hic(hic.rngz, alt.y=y.column, build=build, verbose=FALSE,
+                       xlim=rng, y.FUN=c, join.scl=1, plot.new=FALSE, deg45=deg45,
+                       col.bait=tissue.cols[dd], col.end=tissue.cols[dd], col.join="black", 
+                       lwd.ranges=2, lty.join=c("dashed","dotted")[2])
+            } else {
+              plot.ranges(rngz,alt.y=y.column,lwd=2,
+                        do.labs=F, col=tissue.cols[dd],skip.plot.new=T)
+            }
+          }
+        }
+      }
+    } else {
+      print(regions)
+      warning("region ",cc," [",Ranges.to.txt(regions[cc,]),"] had no rownames in any tissue of 'hic.list'")
+      plot(1,1,col="white",main=paste("region",cc,"was empty"))
+      #text(midpoint(rng),midpoint(ylim), labels=paste("region",cc,"was empty"))
+    }
+    lblz <- if("band" %in% colnames(mcols(regions))) { "band" } else { NULL }
+    ### PLOT the REGION ###
+    plot.ranges(regions.orig[cc,],skip.plot.new=T,col=reg.col,lwd=3, labels=lblz, pos=2)
+    ### PLOT the overlapping GENES ###
+    if(!is.null(genes.col)) {
+      plot.gene.annot(chr=nxt.chr,pos=rng,scl="b",y.ofs=.5,build=build,gs=gs, box.col=genes.col)
+    }
+    #### PLOT ANY SNPS in RANGE ###
+    range.limit <- make.granges(chr=nxt.chr,start=rng0[1],end=rng0[2],build=build)
+    sub.snps <- subsetByOverlaps(snps,range.limit)
+    myseq <- c(start(regions[cc,]),start(toGenomeOrder(sub.snps)),end(regions[cc,]))
+    #print(myseq)
+    dd <- diff(myseq)
+    pcs <- round(dd/diff(range(myseq)),3)
+    #print(cc); print(pcs)
+    if(any(pcs<.05)) { leg.snps <- TRUE } else { leg.snps <- FALSE } # are any really close together?
+    if(nrow(sub.snps)>0) {
+      lss <- length(sub.snps); nCl <- 1; snp.PCH <- snp.pch
+      if(lss>22) { 
+        cx <- .5
+        cz <- "darkgrey"; snp.PCH <- 2
+        if(lss>40) { nCl <- (lss %/% 40)+1 }
+      } else { 
+        cx <- .75
+        cz <- get.distinct.cols(lss)
+      }
+      if(!leg.snps) { rownames(sub.snps) <- paste0(". ",rownames(sub.snps)) } # hack to offset the names a little
+      plot.ranges(sub.snps,skip.plot.new=T,col=cz,
+                  pch=snp.pch,srt=90,alt.y=rep(1.5,lss),do.labs=!leg.snps, pos=4) 
+      if(leg.snps) { legend("topleft",legend=rownames(sub.snps), col=cz, pch=snp.PCH, cex=cx, bty="n", ncol=nCl) }
+    } else { warning("no overlapping snps in ",Ranges.to.txt(range.limit),"\n") }
+    legend("topright",legend=names(All.Tissues),lwd=2,col=tissue.cols,bty="n")
+    #### END PLOT SNPS ####
+    loop.tracker(cc,up.to)
+  }
+  if(is.character(fn) & length(fn)==1) { dev.off() } 
+}
+
+
+
+
+## REDUNDANT!!! ?? ##
+# removes all but the first of any overlapping ranges within the same sample
+# should be a list of cnvs with a column 'id', e.g, sample id
+remove.duplicated.ranges <- function(X) {
+  if(!is(X)[1]=="GRanges") { stop("X wasn't GRanges") }
+  prn <- nrow(X)
+  XX <- vector("list",length(chrNames2(X)))
+  do.one.chr <- function(X) {
+    idz <- start(X); 
+    idz <- idz[duplicated(idz)]
+    udz <- unique(idz)
+    n.id <- length(udz)
+    #prv(udz)
+    for (cc in 1:n.id) {
+      select <- which(start(X) %in% udz[cc])
+      U <- X[select,]
+      ov <- findOverlaps(U)
+      qq <- queryHits(ov)
+      ss <- subjectHits(ov)  
+      tt <- table(qq,ss)
+      diag(tt) <- 0
+      tt[lower.tri(tt)] <- 0
+      to.kill <- colnames(tt)[colSums(tt)>0]
+      if(length(to.kill)>0) {
+        X <- X[-c(select[as.numeric(to.kill)]),]
+      }
+      # loop.tracker(cc,n.id); #cat("x")
+    }
+    #print(X)
+    return(X)
+  }
+  ct <- 1
+  all.chr <- chr2(X)
+  chrn <- chrNames2(X)
+  names(XX) <- chrn
+  for(chrz in chrn) {
+    XX[[chrz]] <- do.one.chr(chr.sel(X,chrz))
+    ct <- ct + 1
+  }
+  X <- do.call("rbind",args=XX)
+  ND <- prn - nrow(X)
+  if(ND>0) { cat("NOTE: removed",ND,"ids that were duplicates\n") }
+  return(X)
+}
 
 # somehow is slower than reader?
 
@@ -1050,4 +1492,19 @@ read.snp.info <- function(input.fn=NULL, dir=getwd(),
     if(verbose) { cat(". done\n") }    
   }
   return(impDat)
+}
+
+
+
+# coerce a chr list like (chr1, chr2, chr6_extra_bit,chrx) to (1,2,6,X)
+coerce.chrname <- function(chrnames) {
+  chrnames <- tolower(paste(chrnames))
+  ii <- grep("chr",chrnames)
+  if(length(ii)>0) {
+    chrnames <- substr(chrnames,1,5)
+    chrnames <- gsub("_","",chrnames)
+    chrnames <- gsub("chr","",chrnames)
+    chrnames <- toupper(chrnames)
+  }
+  return(chrnames)
 }

@@ -1,4 +1,3 @@
-
 ichip.dir <- "/chiswick/data/ncooper/iChipData/"
 impute.dir <- "/chiswick/data/ncooper/imputation/common/"
 data.dir <- paste0(impute.dir,"ALL.integrated_phase1_SHAPEIT_16-06-14.nosing/")

@@ -6,6 +6,9 @@ require(NCmisc)
 
 ## depends on iFunctions ##
 
+
+
+
 #' Class 'HiC'
 #' 
 #' This class annotates a microarray SNP chip with data for each SNP including chromosome,
@@ -78,7 +81,16 @@ setGeneric("ranges.end", function(x) standardGeneric("ranges.end") )
 #' @param x a HiC object
 #' @return character
 setMethod("bait", "HiC", function(x) emd.rmv(as(x,"GRanges")) )
-setMethod("otherEnd", "HiC", function(x) { x@ranges <- x@ranges.end; return(emd.rmv(as(x,"GRanges"))) } )
+
+setMethod("otherEnd", "HiC", function(x) { 
+  build <- ucsc.sanitizer(build(x))
+  out <- GRanges(seqnames = x@seqnames.end, ranges = x@ranges.end, seqinfo = x@seqinfo.end, strand=x@strand) 
+  genome(out) <- build
+  mcols(out) <- mcols(x)
+  rownames(out) <- rownames(x)
+  return(emd.rmv(as(out,"GRanges"))) } )
+
+
 if(!exists("build",mode="function")) {
  setGeneric("build", function(x) standardGeneric("build") )
 }
@@ -289,6 +301,66 @@ extract.genes <- function(X,list=TRUE,missing=".") {
 }
 
 
+setGeneric("Baits", function(X) standardGeneric("Baits"))
+setGeneric("combine", function(X) standardGeneric("combine"))
+
+setMethod("Baits", "HiC", function(X) {
+  return(bait(X)[!duplicated(start(X)),])
+} )
+
+
+setMethod("Baits", "HiCList", function(X) {
+  Baitz <- lapply(X@hic.list,Baits) # get the uniques
+  AllBaitz <- do.call("rbind",args=Baitz) # combine the uniques
+  ii <- !duplicated(start(AllBaitz))
+  # prv(ii,AllBaitz)
+  rownames(AllBaitz) <- paste(chr(AllBaitz),start(AllBaitz),sep="_")
+  return(AllBaitz[ii,]) # this will remove any duplicates between sets
+} )
+
+
+setMethod("rbind","GRanges", function(...) {
+  rlist <- lapply(list(...),as,"RangedData")
+  outs <- do.call("rbind",args=rlist)
+  return(as(outs,"GRanges"))
+} )
+
+
+setMethod("combine", "HiCList", function(X) {
+  big.N <- sum(sapply(X@hic.list,length))
+  WARNSIZE <- 20*10^6 # 20 million... seems pretty big to me, but probably would work.
+  MAXSIZE <- (2^31)-2 # theoretical limit, may not even be possible at much lower than this
+  if(big.N>WARNSIZE & big.N<=MAXSIZE) { warning("The elements of the HiCList would have a combined length of ",big.N,"which may be too large for R to cope with") }
+  if(big.N>MAXSIZE) { stop("The elements of the HiCList would have a combined length of ",big.N,"which is too large for R to cope with") }
+  Baitz <- lapply(X@hic.list,bait); MBait <- do.call("rbind",args=Baitz)
+  Otherz <- lapply(X@hic.list,otherEnd); MOther <- do.call("rbind",args=Otherz)
+  Readz <- lapply(X@hic.list,reads); MRead <- do.call("c",args=Readz)
+  Scorez <- lapply(X@hic.list,score); MScore <- do.call("c",args=Scorez)
+  Buildz <- lapply(X@hic.list,build); MBuild <- do.call("c",args=Buildz)
+  PBaitz <- lapply(X@hic.list,pro.bait); MPBait <- do.call("c",args=PBaitz)
+  P2Baitz <- lapply(X@hic.list,pro.end); MP2Bait <- do.call("c",args=P2Baitz)
+  Rnz <- lapply(X@hic.list,rownames); MRn <- do.call("c",args=Rnz)
+  #prv(MBait, MOther, MRead, MScore, MBuild, MPBait, MP2Bait)
+  out <- HiC(GRanges=MBait, GRanges.end=MOther, reads=MRead, score=MScore, build=MBuild,
+                  promo.bait=MPBait, promo.end=MP2Bait)
+  # if rownames between subsets don't seem to be unique
+  if(length(X)>1) {
+    if(any(duplicated(MRn))) {
+      names(out@ranges) <- names(out@ranges.end) <- paste(chr(out),start(out),sep="_")
+      #names(out@ranges.end) <- paste(1:length(out))
+      warning("found duplicated rownames, replaced with chr_start")
+    } 
+  }
+  return(out)
+} )
+
+setMethod("rbind", signature("HiC"), function(...) {
+  hic.list <- as(list(...),"HiCList")
+  return(combine(hic.list))
+} )
+
+
+
 #' Subset HiC by row (ranges)
 #' 
 #' Returns a row subset of the HiC object.
@@ -326,10 +398,14 @@ setMethod("[", "HiC", function(x,i,j,...) {
     X <- IRanges:::extractROWS(x,i)
     n1 <- names(X@ranges)
     n2 <- names(x@ranges.end) # this seems a bit hacky but seems to work!
+    #prv(n1,n2)
     ii <- match(n1,n2)
     if(any(is.na(ii))) { stop("mismatch between names in @ranges versus @ranges.end") }
     #cat("reduced length from ",length(n2),"to",length(ii),"\n")
     X@ranges.end <- x@ranges.end[ii,]
+    X@seqnames <- x@seqnames[ii,]
+   # X@strand <- x@strand[ii,]
+    X@seqnames.end <- x@seqnames.end[ii,]
     X@promoters.bait <- x@promoters.bait[ii]
     X@promoters.end <- x@promoters.end[ii]
   } else { 
@@ -566,9 +642,10 @@ setMethod("print", "HiC",
 #' for pass and fail respectively, or else 0 can be pass, and 1,2,... can indicate failure for 
 #' different criteria. 0 will always be treated as a pass and anything else as a fail, so you
 #' can code fails however you wish.
-HiC <- function(GRanges=NULL, GRanges.end=NULL, reads=NULL, score=NULL, build="",
+HiC <- function(GRanges=NULL, GRanges.end=NULL, reads=NULL, score=NULL, build=NULL,
                      promo.bait=NULL, promo.end=NULL,sep="[/||,]",fixed=FALSE) {
-  if(build!="") { build <- ucsc.sanitizer(build) }
+  if(is.null(build)) { build <- getOption("ucsc") }
+  build <- ucsc.sanitizer(build)
   LL <- length(GRanges)
   if(length(GRanges.end)!=LL) { stop("GRanges and GRanges.end must be the same size") }
   if(any(chr(GRanges)!=chr(GRanges.end))) { warning("GRanges and GRanges.end did not have identical chromosomes in each row") }
@@ -582,7 +659,8 @@ HiC <- function(GRanges=NULL, GRanges.end=NULL, reads=NULL, score=NULL, build=""
   if(!is.list(promo.bait)) { promo1.list <- strsplit(paste(promo.bait), split = sep, fixed = fixed) } else { promo1.list <- promo.bait }
   if(!is.list(promo.end)) { promo2.list <- strsplit(paste(promo.end), split = sep, fixed = fixed) } else { promo2.list <- promo.end }
   df <- DataFrame(reads=reads,score=score)
-  return(new("HiC", seqnames=GRanges@seqnames, ranges=GRanges@ranges, seqnames.end=GRanges.end@seqnames, ranges.end=GRanges.end@ranges, strand=GRanges@strand,
+  return(new("HiC", seqnames=GRanges@seqnames, ranges=GRanges@ranges, seqnames.end=GRanges.end@seqnames,
+            ranges.end=GRanges.end@ranges, strand=GRanges@strand,
             elementMetadata=df, seqinfo=GRanges@seqinfo, seqinfo.end=GRanges.end@seqinfo,
             build=build, promoters.bait=promo1.list, promoters.end=promo2.list))
 }
@@ -646,7 +724,7 @@ showHiC <- function (x, margin = "", with.classinfo = FALSE, print.seqlengths = 
   #if(length(qc)==lx) { QC <- rep("pass",lx); QC[qc>0] <- paste0("fail",QC[qc>0]) ; x$QCcode <- QC }
   cat("HiC with ", lx, " ", ifelse(lx == 1L, "Entry", 
                    "entries")," using ",bb," coordinates",":\n", sep = "")
-  out <- makePrettyMatrixForCompactPrinting2(x, .makeNakedMatFromHiC,...)
+  out <- makePrettyMatrixForCompactPrinting3(x, .makeNakedMatFromHiC,...)
   if (nrow(out) != 0L) 
     rownames(out) <- paste0(margin, rownames(out))
   print(out, quote = FALSE, right = TRUE)
@@ -709,7 +787,7 @@ sanitize.promo <- function(x,bait=TRUE) {
 
 
 #internal
-makePrettyMatrixForCompactPrinting2 <- function (x, makeNakedMat.FUN,head.tail=6,up.to=50, show.promo=TRUE) 
+makePrettyMatrixForCompactPrinting3 <- function (x, makeNakedMat.FUN,head.tail=6,up.to=50, show.promo=TRUE) 
 {
   lx <- NROW(x)
   if(lx <= up.to) { head.tail <- up.to }
@@ -902,3 +980,231 @@ data.frame.to.ranged <- function(dat,ids=NULL,start="start",end="end",width=NULL
     return(outData)
   }
 }
+
+
+
+#HiC <- function(GRanges=NULL, GRanges.end=NULL, reads=NULL, score=NULL, build="",
+#                promo.bait=NULL, promo.end=NULL,sep="[/||,]",fixed=FALSE)
+
+# list of HiC objects, e.g, for each tissue type #
+setClass("HiCList",
+         contains="list",
+         representation(
+           hic.list="list",
+           split.by="character"
+         ),
+         prototype(
+           hic.list=list(HiC(GRanges=rranges(0),
+                             GRanges.end=rranges(0),
+                             reads=numeric(),
+                             score=numeric(),
+                             build=NULL,
+                             promo.bait=list(),
+                             promo.end=list())),
+           split.by=""
+         )
+)
+
+
+setValidity("HiCList",
+            function(object) {
+              if (!is.character(object@split.by) | length(object@split.by) != 1 | is.na(object@split.by)) {
+                return("'split.by' slot must be a single string, e.g, 'tissue'") 
+              } 
+              is1 <- function(x) { is(x)[1] }
+              if(!all(unlist(lapply(object@hic.list,is1)) %in% c("HiC","NULL"))) { stop("all elements of a HiCList must be HiC objects (or NULL)") }
+            }
+)
+
+
+#' Initialize method for HiCList
+#' 
+#' Please use the 'HiCList' constructor
+setMethod("initialize", "HiCList",
+          function(.Object, ...){
+            callNextMethod(.Object, ...)
+          })
+
+
+HiCList <- function(...,split.by="Tissue") {
+  initial <- list(...)
+  is1 <- function(x) { is(x)[1] }
+  if(!all(sapply(initial,is1) %in% c("HiC","NULL"))) { stop("all elements of a HiCList must be HiC objects (or NULL)") }
+  if(!is.character(split.by)) { stop("split.by should be a character (length 1) description of what the list groupings are, e.g, 'tissue'")}
+ # print(split.by[1])
+  return(new("HiCList", hic.list=initial, split.by=split.by[1]))
+}
+
+
+setMethod("length", "HiCList", function(x) length(x@hic.list))
+
+#' Subset HiCList by HiC element
+#' 
+#' Returns the subset of the HiC object for which SNPs are on
+#' the chromosome specified, by either number or character.
+#' @param x a HiC object
+#' @param i a chromosome number or letter, i.e, one of seqlevels(x)
+#' @return HiC object for the subset of SNPs on chromosome i
+setMethod("[[", "HiCList", function(x,i,j,...) { 
+  dotArgs <- list(...)
+  if (length(dotArgs) > 0)
+    dotArgs <- dotArgs[names(dotArgs) != "exact"]
+  if (!missing(j) || length(dotArgs) > 0)
+    stop("invalid subsetting")
+  if (missing(i))
+    stop("subscript is missing")
+  if (!is.character(i) && !is.numeric(i)) 
+    stop("invalid subscript type")
+  if (length(i) < 1L)
+    stop("attempt to select less than one element")
+#  if (length(i) > 1L)
+#    stop("attempt to select more than one element")
+  cn <- names(x@hic.list)
+  if (is.numeric(i) && !is.na(i) && (i < 1L || i > length(x)))
+    stop("subscript out of bounds")
+  # do the selection #
+  if(all(i %in% cn)) {
+    i <- match(i,cn)
+  } else {
+    if(any(i %in% cn)) {
+      stop("cannot mix numeric indexing and name index")
+    }
+  }
+  if(length(i)==1) {
+    out <- x@hic.list[[i]]
+  } else {
+    out <- x
+    out@hic.list <- x@hic.list[i]
+    out@split.by <- x@split.by
+  }
+  return(out)
+} )
+
+
+#' Subset HiCList by HiC element
+#' 
+#' Returns the subset of the HiC object for which SNPs are on
+#' the chromosome specified, by either number or character.
+#' @param x a HiC object
+#' @param i a chromosome number or letter, i.e, one of seqlevels(x)
+#' @return HiC object for the subset of SNPs on chromosome i
+setMethod("[", "HiCList", function(x,i,j,...) { 
+  dotArgs <- list(...)
+  if (length(dotArgs) > 0)
+    dotArgs <- dotArgs[names(dotArgs) != "exact"]
+  if (!missing(j) || length(dotArgs) > 0)
+    stop("invalid subsetting")
+  if (missing(i))
+    stop("subscript is missing")
+  if (!is.character(i) && !is.numeric(i)) 
+    stop("invalid subscript type")
+  if (length(i) < 1L)
+    stop("attempt to select less than one element")
+  #  if (length(i) > 1L)
+  #    stop("attempt to select more than one element")
+  cn <- names(x@hic.list)
+  if (is.numeric(i) && !is.na(i) && (i < 1L || i > length(x)))
+    stop("subscript out of bounds")
+  # do the selection #
+  if(all(i %in% cn)) {
+    i <- match(i,cn)
+  } else {
+    if(any(i %in% cn)) {
+      stop("cannot mix numeric indexing and name index")
+    }
+  }
+  out <- x
+  out@hic.list <- x@hic.list[i]
+  out@split.by <- x@split.by
+  return(out)
+} )
+
+
+
+setAs("HiCList", "list",
+      function(from) { 
+        return(from@hic.list)
+      }
+)
+
+setAs("list", "HiCList",
+      function(from) { 
+        return(do.call("HiCList",args=from))
+      }
+)
+
+
+setMethod("show", "HiCList", 
+          function(object) { showHiCList(object,n=5) } )
+
+setMethod("names", "HiCList", 
+          function(x) { names(x@hic.list) } )
+
+setMethod("names<-", "HiCList", 
+          function(x,value) { names(x@hic.list) <- value; return(x) } )
+
+showHiCList <- function (x, n=5) 
+{
+  # show function for a HiCList object
+  lx <- length(x)
+  cat("HiCList with ", lx, " HiC ",x@split.by,"'' ", c("element","elements")[as.numeric(lx!=1)+1],": <only first shown>\n", sep = "")
+  head.tail <- n
+  if(head.tail<2) { head.tail <- 2 }
+  if(!is.numeric(head.tail)) { head.tail <- 5; warning("n should be an integer >1") }
+  head.tail <- round(head.tail)
+  if(lx<1) { cat("<empty HiCList>\n") }
+  lz <- sapply(x@hic.list,length)
+  bz <- sapply(x@hic.list,build)
+  bz[bz==""] <- "unknown"
+  #if(length(qc)==lx) { QC <- rep("pass",lx); QC[qc>0] <- paste0("fail",QC[qc>0]) ; x$QCcode <- QC }
+  if(!is.null(names(x@hic.list))) { nmz <- paste0(" $",names(x@hic.list)) } else { nmz <- paste0(" [[",1:lx,"]]") }
+  cat(nmz[1],"\n  ")
+  showHiC(x[[1]],up.to=10,head.tail=head.tail,show.promo=FALSE)
+  #prv(bz,lz,nmz)
+  if(lx>1) {
+    if(lx<head.tail) { nn <- lx } else { nn <- head.tail }
+    for (cc in 2:nn) {
+      cat(nmz[cc],":\n  HiC with ", lz[cc], " ", c("entry","entries")[as.numeric(lz[cc]!=1)+1],"; [",bz[cc],"]","\n", sep = "")
+    }
+    if(lx>(2*head.tail)) { cat("  ...\n") }
+    if(lx>head.tail) {
+      if(lx<(2*head.tail)) { ss <- (head.tail+1) } else { ss <- lx-(head.tail-1) }
+      for (cc in ss:lx) {
+        cat(nmz[cc],":\n  HiC with ", lz[cc], " ", c("entry","entries")[as.numeric(lz[cc]!=1)+1],"; [",bz[cc],"]","\n", sep = "")
+      }
+    }
+  }
+}
+
+
+setGeneric("split.by", function(x) standardGeneric("split.by"))
+setGeneric("split.by<-", function(x,split.by) standardGeneric("split.by<-"))
+
+setMethod("split.by", "HiCList", function(x) {
+  return(x@split.by)
+} )
+
+setMethod("split.by<-", "HiCList", function(x,split.by) {
+  x@split.by <- split.by
+} )
+
+
+
+# what i thought would be a faster method but wasn't
+# 
+# setMethod("Baits", "HiCList", function(X) {
+#   Baitz <- lapply(X@hic.list,Baits) # get the uniques
+#   cp <- function(x) { paste(chr(x),start(x),sep="_") }
+#   AllS <- lapply(Baitz,cp) # combine the uniques
+#   dupz <- duplicated(unlist(AllS))
+#   ll <- sapply(AllS,length)
+#   filts <- split(dupz,factor(rep(1:length(X),ll)))
+#   #prv(dupz,ll,filts)
+#   for (cc in 1:length(X)) {
+#     Baitz[[cc]] <- Baitz[[cc]][which(!filts[[cc]]),]
+#   }
+#   #  Baitz <- mapply(filter,x=Baitz, f=filts)
+#   Baitz <- lapply(Baitz,toGenomeOrder)
+#   AllBaitz <- do.call("rbind",args=Baitz)
+#   return(AllBaitz) #[!duplicated(start(AllBaitz)),]) # this will remove any duplicates between sets
+# } )
