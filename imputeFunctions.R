@@ -1120,15 +1120,15 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
   gs <- get.gene.annot(build=build) # save loading each time in the loop
   if(is.null(score.FUN)) { score.FUN <- c }
   vec.score.FUN <- function(X) { out <- unlist(sapply(X,score.FUN)) }
-  All.Tissues <- as(hic.list,"list")
-  All.Tissues <- lapply(hic.list, function(x) { snp.end.overlap(regions,x,combine=FALSE,bait=!end.overlap) })
+
   regions.orig <- regions # if not by.bait=TRUE, this is just a copy
   if(by.bait) {
     #### in the middle of implementing THIS #####
     fit.both <- TRUE
     regions <- Baits(as(hic.list,"HiCList"))
 #    regions <- hic.list[[1]][!duplicated(start(hic.list[[1]])),]
-    regions <- subsetByOverlaps(regions,regions.orig)
+    ### maybe this? ### regions <- subsetByOverlaps(regions.orig,regions) # original regions overlapped by the baits
+    regions <- subsetByOverlaps(regions,regions.orig) # baits overlapped by original regions
     ## not sure if this should go here, or be more general and go after or before ##
     if(only.if.snp) {
       regions <- subsetByOverlaps(regions,snps)
@@ -1142,9 +1142,20 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
     ## or just match on chr_start instead?
     ## have inserted chr_start rownames into Baits(), but not matching original fmSnps2
     ## fun!
-  }
-  up.to <- length(regions)
+##### LATEST !! #####
+#Error in All.Tissues[[fi]][[hi.ind]] : subscript out of bounds
+#> traceback()
+#1: plot.across.tissues(fmSnps2, gresult, hic.list, fn = "BaitWisetissue45PlotHiCChevronsWide5Tis3", 
+#                       bait = FALSE, score.as.y = TRUE, deg45 = TRUE, snp.pch = 17, 
+#                       ylim = c(0, 20), end.overlap = FALSE, plot.hic = TRUE, exp.pc = 0.9, 
+#                       pdf.width = 25, fit.both = TRUE, by.bait = TRUE)
 
+  }
+  # just moved these from above the looop...
+  All.Tissues <- as(hic.list,"list")
+  All.Tissues <- lapply(hic.list, function(x) { snp.end.overlap(regions,x,combine=FALSE,bait=!end.overlap) })
+  up.to <- length(regions)
+  #return(regions)
   # LOOP ONCE FOR EACH REGION (or bait if that option selected) #
   for(cc in 1:up.to){
     fi <- 1
@@ -1152,6 +1163,8 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
     rng0 <- c(start(regions[cc,]), end(regions[cc,]))
     rng <- extend.50pc(rng0,Chr=nxt.chr,snp.info=get.support(build=build),pc=exp.pc) # extend 50pc is from FunctionsCNVAnalysis.R
     hi.ind <- match(rownames(regions)[cc],names(All.Tissues[[fi]]))
+    #return(All.Tissues)
+    #print(rownames(regions)[cc]); prv(names(All.Tissues[[fi]])); prv(fi)
     while(is.na(hi.ind) & fi<n.tissue) { fi <- fi+1; hi.ind <- match(rownames(regions)[cc],names(All.Tissues[[fi]])) }
     if(!is.na(hi.ind)) {
       ## only run if this index is found ##
@@ -1210,7 +1223,7 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
         }
       }
     } else {
-      print(regions)
+      print(regions[cc,])
       warning("region ",cc," [",Ranges.to.txt(regions[cc,]),"] had no rownames in any tissue of 'hic.list'")
       plot(1,1,col="white",main=paste("region",cc,"was empty"))
       #text(midpoint(rng),midpoint(ylim), labels=paste("region",cc,"was empty"))
