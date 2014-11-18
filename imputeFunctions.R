@@ -3,7 +3,6 @@ options(ucsc="hg19")
 # internal function
 nam <- function(x) { y <- narm(x); return(y[y!="NA"]) }
 
-
 ##### contains functions #####
 # alphabetize.alleles - Set all alleles to alphabetical order by flipping the strand if required 
 # join.alleles - Convert two separate allele columns into a single allele vector
@@ -50,6 +49,7 @@ choose.dups.to.drop <- function(snp.info, snp.excl=NULL, ind.fn="../iChipDupPair
   DUPPOS.EXCL <- dup.mat[cbind(i,j)]
   return(DUPPOS.EXCL)
 }
+
 
 
 # you want to include certain SNPs missing from a datafile as columns explicitly set to all missing (00)
@@ -777,10 +777,7 @@ read.hic <- function(fn, return.S4=TRUE, build=37) {
   return(hic)    
 }
 
-# fmsnps <- read.table("/chiswick/data/ncooper/imputation/T1D/FMSNPS.csv")
-#colnames(fmsnps) <- c("chr","start","end","width","strand","band","p","rs.id")
-#fmSnps <- data.frame.to.granges(fmsnps)
-# pv <- fmSnps[["p"]]
+
 
 #cd4,eryth,macro,mega,monoc
 # jj <- which(genes.bait(cd4)=="CTSH")
@@ -843,6 +840,13 @@ snp.end.overlap <- function(snps, hic, index.only=FALSE, combine=TRUE, chr.only=
 ### HERE ##
 if(F) {
 
+fmsnps <- read.table("/chiswick/data/ncooper/imputation/T1D/FMSNPS.csv",stringsAsFactors=FALSE)
+colnames(fmsnps) <- c("chr","start","end","width","strand","band","p","rs.id")
+nz <- which(fmsnps$rs.id=="NONE")
+fmsnps <- fmsnps[-nz,]
+fmSnps <- data.frame.to.granges(fmsnps)
+pv <- mcols(fmSnps)[,"p"]
+  
 fmSnps2 <- fmSnps[!duplicated(start(fmSnps)),]
 nms <- paste(fmsnps$chr,fmsnps$start,sep="_")
 rs.list <- tapply(paste(fmsnps$rs.id),factor(nms),c)
@@ -855,6 +859,7 @@ print(load("/chiswick/data/ncooper/imputation/COMMON/SNPREFWorking/lookupTableAl
 index <- match(rs.all,bigRS$rs.id)
 result <- with(bigRS,cbind(coerce.chrname(chr[index]),pos[index]))
 rownames(result) <- rs.all
+colnames(result) <- c("chr","pos")
 result[is.na(result[,1]),2] <- as.numeric(Pos(paste(rs.all[is.na(result[,1])])))
 result[is.na(result[,1]),1] <- paste(Chr(paste(rs.all[is.na(result[,1])])))
 extras <- reader("~/Downloads/markers.csv") # from https://mart.immunobase.org/martanalysis/#!/Markers/maker_id_upload?
@@ -866,34 +871,159 @@ result[c("rs61281301","rs201801601","rs150652635","rs57151617","rs35072264","rs6
 extras <- reader("~/Downloads/markers2.csv") # from https://mart.immunobase.org/martanalysis/#!/Markers/maker_id_upload?
 result[is.na(result[,2]),1] <- paste(extras[[1]][match(rs.all[is.na(result[,2])],rownames(extras))])
 result[is.na(result[,2]),2] <- paste(extras[[2]][match(rs.all[is.na(result[,2])],rownames(extras))])
-colnames(result) <- c("chr","pos")
-gresult <- data.frame.to.granges(result[-664,],build=37) # last one is 'NONE'
+gresult <- data.frame.to.granges(result,build=37) # last one is 'NONE'
 rm(bigRS) # free up the memory
-plot.across.tissues(fmSnps2, gresult, hic.list, fn="tissuePlot", bait=FALSE, score.as.y=TRUE,snp.pch=17, ylim=c(0,20))
-plot.across.tissues(fmSnps2, gresult, list(CD4=cd4), fn="FulltissuePlotHiCChevronsWideCD4", bait=FALSE, score.as.y=TRUE,
-                    snp.pch=17, ylim=c(0,20), end.overlap=FALSE, plot.hic=TRUE, exp.pc=1.5, pdf.width=25)
-cdT <- read.hic("/chiswick/data/ncooper/imputation/HiC/TEST_cd4_otherCHR.txt")
-plot.hic(cdT[[6]],fn="cdTChr1Test",ylim=c(0,22),lty.join=c("dashed","dotted"))
-cd4_un <- cd4[!duplicated(start(cd4)),]
-cd4_un_ov <- subsetByOverlaps(cd4_un,fmSnps2)
-plot.across.tissues(cd4_un_ov, gresult, list(CD4=cd4), fn="BaitWisetissuePlotHiCChevronsWideCD4", bait=FALSE, score.as.y=TRUE,
-                    snp.pch=17, ylim=c(0,20), end.overlap=FALSE, plot.hic=TRUE, exp.pc=1.5, pdf.width=25)
-plot.across.tissues(bait(cd4_un_ov), gresult, list(CD4=cd4), fn="BaitWisetissuePlotHiCChevronsWideCD4", bait=FALSE, score.as.y=TRUE,
-                    snp.pch=17, ylim=c(0,20), end.overlap=FALSE, plot.hic=TRUE, exp.pc=.9, pdf.width=25, fit.both=TRUE)
-plot.across.tissues(bait(cd4_un_ov), gresult, list(CD4=cd4), fn="BaitWisetissue45PlotHiCChevronsWideCD4", bait=FALSE,
-                    score.as.y=TRUE, deg45=TRUE,snp.pch=17, ylim=c(0,20), end.overlap=FALSE, 
-                    plot.hic=TRUE, exp.pc=.9, pdf.width=25, fit.both=TRUE)
+####### READ IN THE HiC DATA #######
+cd4 <- read.hic("/chiswick/data/ncooper/imputation/HiC/cd4_upto1M_out.txt")
+eryth <- read.hic("/chiswick/data/ncooper/imputation/HiC/erythroblast_upto1M_out.txt")
+macro <- read.hic("/chiswick/data/ncooper/imputation/HiC/macrophage_upto1M_out.txt")
+mega <- read.hic("/chiswick/data/ncooper/imputation/HiC/megakaryocyte_upto1M_out.txt")
+monoc <- read.hic("/chiswick/data/ncooper/imputation/HiC/monocyte_upto1M_out.txt")
+ii1 <- (snp.end.overlap(fmSnps2,cd4,combine=FALSE))
+ii2 <- (snp.end.overlap(fmSnps2,eryth,combine=FALSE))
+ii3 <- (snp.end.overlap(fmSnps2,macro,combine=FALSE))
+ii4 <- (snp.end.overlap(fmSnps2,mega,combine=FALSE))
+ii5 <- (snp.end.overlap(fmSnps2,monoc,combine=FALSE))
+All.Tissues <- list(CD4=ii1,Erythrocytes=ii2,Macrophages=ii3,Megakaryocytes=ii4,Monocytes=ii5)
+hic.list <- list(CD4=cd4,Erythrocytes=eryth,Macrophages=macro,Megakaryocytes=mega,Monocytes=monoc)
+
+#plot.across.tissues(fmSnps2, gresult, hic.list, fn="tissuePlot", bait=FALSE, score.as.y=TRUE,snp.pch=17, ylim=c(0,20))
+#plot.across.tissues(fmSnps2, gresult, list(CD4=cd4), fn="FulltissuePlotHiCChevronsWideCD4", bait=FALSE, score.as.y=TRUE,
+#                    snp.pch=17, ylim=c(0,20), end.overlap=FALSE, plot.hic=TRUE, exp.pc=1.5, pdf.width=25)
+#cdT <- read.hic("/chiswick/data/ncooper/imputation/HiC/TEST_cd4_otherCHR.txt")
+#plot.hic(cdT[[6]],fn="cdTChr1Test",ylim=c(0,22),lty.join=c("dashed","dotted"))
+#cd4_un <- cd4[!duplicated(start(cd4)),]
+#cd4_un_ov <- subsetByOverlaps(cd4_un,fmSnps2)
+#plot.across.tissues(cd4_un_ov, gresult, list(CD4=cd4), fn="BaitWisetissuePlotHiCChevronsWideCD4", bait=FALSE, score.as.y=TRUE,
+#                    snp.pch=17, ylim=c(0,20), end.overlap=FALSE, plot.hic=TRUE, exp.pc=1.5, pdf.width=25)
+#plot.across.tissues(bait(cd4_un_ov), gresult, list(CD4=cd4), fn="BaitWisetissuePlotHiCChevronsWideCD4", bait=FALSE, score.as.y=TRUE,
+#                    snp.pch=17, ylim=c(0,20), end.overlap=FALSE, plot.hic=TRUE, exp.pc=.9, pdf.width=25, fit.both=TRUE)
+#plot.across.tissues(bait(cd4_un_ov), gresult, list(CD4=cd4), fn="BaitWisetissue45PlotHiCChevronsWideCD4", bait=FALSE,
+#                    score.as.y=TRUE, deg45=TRUE,snp.pch=17, ylim=c(0,20), end.overlap=FALSE, 
+#                    plot.hic=TRUE, exp.pc=.9, pdf.width=25, fit.both=TRUE)
 
 }
 
-#ii1 <- (snp.end.overlap(fmSnps2,cd4,combine=FALSE))
-#ii2 <- (snp.end.overlap(fmSnps2,eryth,combine=FALSE))
-#ii3 <- (snp.end.overlap(fmSnps2,macro,combine=FALSE))
-#ii4 <- (snp.end.overlap(fmSnps2,mega,combine=FALSE))
-#ii5 <- (snp.end.overlap(fmSnps2,monoc,combine=FALSE))
-#All.Tissues <- list(CD4=ii1,Erythrocytes=ii2,Macrophages=ii3,Megakaryocytes=ii4,Monocytes=ii5)
+if(F) {
 
-#hic.list <- list(CD4=cd4,Erythrocytes=eryth,Macrophages=macro,Megakaryocytes=mega,Monocytes=monoc)
+## check just difs
+cur.loc <- "/chiswick/data/ncooper/imputation/COMBINED/sst-aligned"
+ichip.t1d <- reader("/chiswick/data/ncooper/iChipData/compiledTableAllResultsPassingQC5.RData")
+ibase <- reader("/home/ncooper/Downloads/IC_RESULTS_15_02_2013.tab")
+ichip.ra <- ibase[,"ra_eyre",drop=F]
+ichip.atd <- ibase[,"cooper_aitd",drop=F]
+ichip.celiac <- ibase[,"celiac_trynka",drop=F]
+#ichip.rsids <- rownames(ichip.ra)
+#mmrt <- ibase$marker_mart
+#rs.maybe <- paste0("rs",abs(mmrt))
+#rss <-(rs.to.id(rs.maybe))
+#ic.rsids <- character(); for (cc in 1:10) { ic.rsids[cc] <- substr(ichip.rsids[cc],1,nchar(ichip.rsids[cc])-17) } #slow
+#notgot <- (which(!ic.rsids %in% rownames(get.support())))
+#ic.rsids[notgot] <- rss[notgot]
+(load("ic.rsids.backup.RData")) # instead of commented out lines above
+
+options(ucsc="hg19")
+ic.chr.pos <- paste(Chr(ic.rsids),Pos(ic.rsids)) # e.g, 1_21345434 - unique and universal snp id!
+ic.t1d.chr.pos <- paste(ichip.t1d$Chr,ichip.t1d$Pos)
+
+dis.codes <- c("t1d","ra","atd","celiac")
+
+all.files <- cat.path(cur.loc,list.files(cur.loc))
+corz.e <- numeric(length(all.files))
+corz <- list(corz.e,corz.e,corz.e,corz.e,corz.e,corz.e)[1:length(dis.codes)]
+difzs.e <- vector("list",length(all.files))
+names(difzs.e) <- basename(all.files)
+
+difzs <- list(difzs.e,difzs.e,difzs.e,difzs.e,difzs.e,difzs.e,difzs.e)[1:length(dis.codes)]
+rps <- ips <- vector("list",length(dis.codes)); names(rps) <- dis.codes; names(ips) <- dis.codes
+names(difzs) <- names(corz) <- dis.codes
+RESULTS <- NULL
+for (dd in 1:length(all.files)) {
+  (load(all.files[dd]))
+  print(basename(all.files[dd]))
+  RESULTS <- rbind(RESULTS,results)
+  chris.chr.pos <- paste(results$chromosome,results$position)
+  ips[["t1d"]] <- as.numeric(ichip.t1d[match(chris.chr.pos,ic.t1d.chr.pos),"p.value"])
+  mm <- match(chris.chr.pos,ic.chr.pos)
+  ips[["ra"]] <- as.numeric(ichip.ra[mm,1])
+  ips[["atd"]] <- as.numeric(ichip.atd[mm,1])
+  ips[["celiac"]] <- as.numeric(ichip.celiac[mm,1])
+  
+  rps[["t1d"]] <- as.numeric(results$p.t1d)
+  rps[["ra"]] <- as.numeric(results$p.ra)
+  rps[["atd"]] <- as.numeric(results$p.atd)
+  rps[["celiac"]] <- as.numeric(results$p.celiac)
+ # rps[["ms"]] <- results$p.ms
+ # rps[["jia"]] <- results$p.jia
+  for (ee in 1:length(dis.codes)) {
+    corz[[ee]][dd] <- (cor((-log10(ips[[ee]])),(-log10(rps[[ee]])),use="pairwise.complete"))
+    difz <- -(-log10(ips[[ee]])) + (-log10(rps[[ee]]))
+    difzs[[ee]][[dd]] <- (summary(difz))
+  }
+  
+}
+
+}
+
+followup.worst <- function(difzs,dis=1) {
+  mins <- sapply(difzs[[dis]],"[",1)
+  bad.mins <- head(sort(mins[(mins< -10)]),3)
+  if(length(bad.mins)>0) {
+   #print(bad.mins); print(mins)
+    min.nos <- narm(match(bad.mins,mins))
+    for(cc in 1:length(min.nos)) {
+      difz <- one.run(dd=min.nos[cc],ee=dis)
+      #print(min.nos[cc]); print(bad.mins[cc])
+      cat("lower than",round(-(exp(log(abs(bad.mins[cc]))-.3))),"\n")
+      #print(summary(difz))
+      #print(which(difz < -(exp(log(abs(bad.mins[cc]))-.3))))
+      cat(comma(ic.rsids[which(difz < -(exp(log(abs(bad.mins[cc]))-.3)))]),"\n")
+      cat("\n")
+    }
+  } else {
+    cat("none lower\n\n")
+  }
+  
+  maxs <- sapply(difzs[[dis]],"[",6)
+  bad.maxs <- head(rev(maxs[(maxs>10)]),3)
+  if(length(bad.maxs)>0) {
+    max.nos <- narm(match(bad.maxs,maxs))
+    for(cc in 1:length(max.nos)) {
+      difz <- one.run(dd=max.nos[cc],ee=dis)
+      #print(dd)
+      cat("higher than",round(exp(log(bad.maxs[cc])-.3)),"\n")
+      cat(comma(ic.rsids[which(difz > (exp(log(bad.maxs[cc])-.3)))]),"\n")
+      cat("\n")
+    }
+  } else {
+    cat("none higher\n\n")
+  }
+}
+
+
+one.run <- function(dd,ee) {
+  (load(all.files[dd]))
+  print(basename(all.files[dd]))
+  chris.chr.pos <- paste(results$chromosome,results$position)
+  ips[["t1d"]] <- as.numeric(ichip.t1d[match(chris.chr.pos,ic.t1d.chr.pos),"p.value"])
+  mm <- match(chris.chr.pos,ic.chr.pos)
+  ips[["ra"]] <- as.numeric(ichip.ra[mm,1])
+  ips[["atd"]] <- as.numeric(ichip.atd[mm,1])
+  ips[["celiac"]] <- as.numeric(ichip.celiac[mm,1])
+  
+  rps[["t1d"]] <- as.numeric(results$p.t1d)
+  rps[["ra"]] <- as.numeric(results$p.ra)
+  rps[["atd"]] <- as.numeric(results$p.atd)
+  rps[["celiac"]] <- as.numeric(results$p.celiac)
+  # rps[["ms"]] <- results$p.ms
+  # rps[["jia"]] <- results$p.jia
+  corz[[ee]][dd] <- (cor((-log10(ips[[ee]])),(-log10(rps[[ee]])),use="pairwise.complete"))
+  difz <- -(-log10(ips[[ee]])) + (-log10(rps[[ee]]))
+  difzs[[ee]][[dd]] <- (summary(difz))
+  return(difz)
+}
+
+
 
 
 
@@ -1100,6 +1230,11 @@ midpoint <- function(x) {
 #' parameter x (length 1) and return a single value. The default function will scale anything 
 #' above 10 using sqrt() and caps the max at 20. Use NULL or 'c' (combination function) to 
 #' effectively turn this off.
+#' @examples
+#' plot.across.tissues(fmSnps2, gresult, hic.list, fn = "BaitWisetissue45PlotHiCChevronsWide5Tis3", 
+#'                       bait = FALSE, score.as.y = TRUE, deg45 = TRUE, snp.pch = 17, 
+#'                       ylim = c(0, 20), end.overlap = FALSE, plot.hic = TRUE, exp.pc = 0.9, 
+#'                       pdf.width = 25, fit.both = TRUE, by.bait = TRUE)
 plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, end.overlap=!bait, fit.both=FALSE,
                                 build=NULL, score.as.y=TRUE, plot.hic=FALSE, deg45=FALSE, by.bait=FALSE, only.if.snp=TRUE,
                                 tissue.cols=c("red","blue","orange","green","brown"), genes.col="grey", 
@@ -1133,23 +1268,6 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
     if(only.if.snp) {
       regions <- subsetByOverlaps(regions,snps)
     }
-    ## now want to use the original region to plot the black line and the new region
-    ## to choose which things to plot
-    ###### OK HERE #######
-    ### ISSUE IS WITH ROWNAMES.. NOW INCONSISTENCIES HAVE OCCURRED###
-    ## need to review how this is managed.
-    ## perhaps force all chr_start 
-    ## or just match on chr_start instead?
-    ## have inserted chr_start rownames into Baits(), but not matching original fmSnps2
-    ## fun!
-##### LATEST !! #####
-#Error in All.Tissues[[fi]][[hi.ind]] : subscript out of bounds
-#> traceback()
-#1: plot.across.tissues(fmSnps2, gresult, hic.list, fn = "BaitWisetissue45PlotHiCChevronsWide5Tis3", 
-#                       bait = FALSE, score.as.y = TRUE, deg45 = TRUE, snp.pch = 17, 
-#                       ylim = c(0, 20), end.overlap = FALSE, plot.hic = TRUE, exp.pc = 0.9, 
-#                       pdf.width = 25, fit.both = TRUE, by.bait = TRUE)
-
   }
   # just moved these from above the looop...
   All.Tissues <- as(hic.list,"list")
@@ -1161,6 +1279,13 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
     fi <- 1
     nxt.chr <- chr(regions[cc,])
     rng0 <- c(start(regions[cc,]), end(regions[cc,]))
+    if(by.bait) { 
+      this.region <- subsetByOverlaps(regions.orig,regions[cc])[1,]
+      rng2 <- c(start(this.region), end(this.region)) 
+      if(all(!is.na(rng2))) {
+        rng0 <- range(c(rng0,rng2),na.rm=T)
+      }
+    }
     rng <- extend.50pc(rng0,Chr=nxt.chr,snp.info=get.support(build=build),pc=exp.pc) # extend 50pc is from FunctionsCNVAnalysis.R
     hi.ind <- match(rownames(regions)[cc],names(All.Tissues[[fi]]))
     #return(All.Tissues)
@@ -1185,6 +1310,11 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
         }
         if(all(!is.na(big.range))) { rng <- big.range } # set rng to maximum width of any bait/end in the set
       }
+      # check for possible errors due to missing/incomplete sets:
+      if(is.na(fi) | is.na(hi.ind)) {  next }
+      if(length(All.Tissues)<fi) {  next }
+      if(length(All.Tissues[[fi]])<hi.ind) {  next }
+      #
       hic.rngz <- All.Tissues[[fi]][[hi.ind]]
       if(is.null(hic.rngz)) { next } # if 
       rngz <- end.extract(hic.rngz)
@@ -1230,7 +1360,12 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
     }
     lblz <- if("band" %in% colnames(mcols(regions))) { "band" } else { NULL }
     ### PLOT the REGION ###
-    plot.ranges(regions.orig[cc,],skip.plot.new=T,col=reg.col,lwd=3, labels=lblz, pos=2)
+   ## print(Ranges.to.txt(this.region))
+    if(by.bait) {
+      plot.ranges(this.region,skip.plot.new=T,col=reg.col,lwd=3, labels=lblz, pos=2) # alt.y=rep(2,length(cc))
+    } else {
+      plot.ranges(regions[cc,],skip.plot.new=T,col=reg.col,lwd=3, labels=lblz, pos=2) # alt.y=rep(2,length(cc))
+    }
     ### PLOT the overlapping GENES ###
     if(!is.null(genes.col)) {
       plot.gene.annot(chr=nxt.chr,pos=rng,scl="b",y.ofs=.5,build=build,gs=gs, box.col=genes.col)
@@ -1521,3 +1656,321 @@ coerce.chrname <- function(chrnames) {
   }
   return(chrnames)
 }
+
+
+
+
+if(F) {
+  results <- reader("/chiswick/data/ncooper/imputation/T1D/sanity-1.RData")
+  
+  results <- results[,c(1:3,13)]
+  results[["chr"]] <- 21
+  
+  results2 <- data.frame.to.granges(results,chr="chr",start="position",end="position")
+  
+  ichip.data <- reader("/chiswick/data/ncooper/imputation/COMMON/iChipPaperAnalysisResultsFeb2014.RData")
+  
+  ichip.data2 <- data.frame.to.granges(ichip.data[,1:5])
+  
+  regions <- reader("/chiswick/data/ncooper/imputation/COMMON/iChipFineMappingRegionsB37.RData")
+  regions <- as(regions,"GRanges")
+  res <- vector("list",188); st <- proc.time()[3]
+  names(res) <- mcols(regions)[,"Band"]
+  for (cc in 1:188) {
+    res[[cc]] <- check.region(regions[180,],results2,ichip.data2)  
+    loop.tracker(cc,188)
+  }
+  
+  all.c <- sort(c(paste0("chr",3:22),"chr2-part-1","chr2-part-2"))
+  locs <- cat.path("/chiswick/data/ncooper/imputation/COMBINED/single-snp-tests",all.c,ext="RData")
+  results <- reader("/chiswick/data/ncooper/imputation/COMBINED/single-snp-tests/chr1.RData")
+  results <- results[,c(1:4,15)]
+  for (cc in 1:22) {
+    X <- reader(locs[cc])
+    X <- X[,c(1:4,15)]
+    results <- rbind(results,X)
+  }
+  colnames(results)[5] <- "p"
+  rownames(results) <- results$rs_id
+  results$chr <- paste(results$chr)
+  results$chr[results$chr=="2-part-1"] <- 2
+  results$chr[results$chr=="2-part-2"] <- 2
+  results2 <- data.frame.to.granges(results,chr="chr",start="position",end="position")
+  nR <- nrow(regions)
+  res <- vector("list",nR); 
+  names(res) <- mcols(regions)[,"Band"]
+  ichip.data3 <- select.autosomes(toGenomeOrder(ichip.data2))
+  results2 <- toGenomeOrder2(results2)
+  ######## Making plots for each Dense Region ########
+  print(Dim(results2[rownames(all.snps)[!filt2],])); print(Dim(results2))
+  results22 <- toGenomeOrder(results2[rownames(all.snps)[!filt3],])
+  st <- proc.time()
+  pdf("/chiswick/data/ncooper/imputation/COMBINED/T1Dtests/big188ComparisonB.pdf")
+  for (cc in 1:nR) {
+    #next.reg <- cat.path("/chiswick/data/ncooper/imputation/COMBINED/T1Dtests",
+    #   "T1Dregion",suf=cc,ext="pdf")
+    #pdf(next.reg)
+#    par(mfrow=c(1,2))
+    res[[cc]] <- check.region2(regions[cc,],results2,ichip.data3)
+#    check.region2(regions[cc,],results22,ichip.data3)
+    #dev.off()
+    loop.tracker(cc,nR,st)
+#    save(res,file="resultsOfRawRunT1D.RData")
+  }
+  dev.off()
+  
+  # check these results against impute stats #
+  ref.dir <- "/chiswick/data/ncooper/imputation/COMBINED/impute_output/"
+  each.chr <- list.files(ref.dir)
+  X1 <- reader(cat.path(ref.dir,"imputed-2-part-1",ext="RData"))
+  X2 <- reader(cat.path(ref.dir,"imputed-2-part-2",ext="RData"))
+  X <- cbind2(X1$q,X2$q)
+  ch2 <- snps(X)
+  for (dd in c(1:22)[-2]) {
+    XX <- reader(cat.path(ref.dir,"imputed-",suf=dd,ext="RData"))
+    if(!is.null(XX$q)) {
+      if(!is.null(XX$p)) {
+        X <- rbind2(snps(XX$p),snps(XX$q))
+      } else {
+        X <- snps(XX$q)
+      }
+    } else {
+      X <- snps(XX$p)
+    }
+    assign(paste0("ch",dd),X)
+    loop.tracker(dd,22)
+  }
+  all.snps <- rbind(ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8,ch9,ch10,ch11,
+            ch12,ch13,ch14,ch15,ch16,ch17,ch18,ch19,ch20,ch21,ch22)
+  save(all.snps,file="/chiswick/data/ncooper/imputation/COMBINED/allSnpsInfoFromChris2.RData")
+  all.dif <- unlist(sapply(res,"[",1))
+  all.outly <- unlist(sapply(res,"[",2))
+  ## density plot overlaying overall distribution excluding these two lists, then dists for the lists
+  ## do for each stat
+  main.set <- which(!rownames(all.snps) %in% c(all.outly,all.dif))
+  dif.set <- which(rownames(all.snps) %in% all.dif)
+  out.set <- which(rownames(all.snps) %in% all.outly)
+  statz <- c("exp_freq_a1","info","certainty","type",
+              "info_type0","concord_type0","r2_type0") #,"A1","A2")
+  pdf("mytestplot.pdf")
+  filt <- rep(TRUE,nrow(all.snps))
+ # filt2 <- with(all.snps,type>=0 & info>.825 & exp_freq_a1>.001 & exp_freq_a1<.006)
+ # filt3 <- with(all.snps,type>=0 & info>.825  & exp_freq_a1<.006)
+  for (dd in 1:length(statz)) {
+    X <- all.snps[[statz[dd]]]
+    plot(density(X[main.set][filt[main.set]]),col="grey",main=statz[dd])
+    lines(density(X[dif.set][filt[dif.set]]),col="red")
+    lines(density(X[out.set][filt[out.set]]),col="orange")
+    legend("topright",
+        legend=c("large diff to ichip","high p value","all others"),
+        col=c("red","orange","grey"),lwd=1)
+  }
+  dev.off()
+  categ2 <- rep(0,nrow(all.snps))
+  categ2[out.set] <- 1
+  all.snps[["category"]] <- categ2
+  quick.lda(Y="category",preds=c("exp_freq_a1","info","certainty"),
+       labs=c("main","difs"),data=all.snps,prior=c(0.65,0.35))
+ 
+  library(party)
+  ctree("category ~ .",data=all.snps)
+  pdf("ctree.test.pdf")
+  ctree(as.formula(paste("categ2 ~ ",paste(colnames(all.snps)[-c(1:3,11:13)],collapse=" + "))),data=all.snps)
+  dev.off()
+ 
+  categ <- rep(0,nrow(all.snps))
+  categ[out.set] <- 1
+  all.snps[["category"]] <- categ
+  quick.lda(Y="category",preds=c("exp_freq_a1","info","certainty"),
+       labs=c("main","outs"),data=all.snps,prior=c(0.65,0.35))
+  
+ # Node 54,55, 56 type>0, info>.825, info_type0<.538, exp_freq_a1>.001 & <.004, especially concord_type0<.994
+ # Node 60 type>0, info>.825, info_type0>.212 & <.538, exp_freq_a1>.001 & <.006, r2_type0<.2
+ # Node 70 type>0, info>.825, info_type0>.538, exp_freq_a1>.001 & <.003, r2_type0>.914
+ # Node 72 type>0, info>.825, info_type0>.538, exp_freq_a1>.001 & <.004, info_type0 < .678
+  
+  #filt1 <- with(all.snps,type>0 & info>.825 & exp_freq_a1>.001 & exp_freq_a1<.006)
+  
+}
+
+#16700000, 16840000
+#40450000, 45700000
+
+#quick.lda(Y="categ",preds=c("exp_freq_a1","info","certainty"),labs=c("main","difs"))
+
+# runs LDA and automatically calculates sensitivity, specificity, etc
+quick.lda <- function(Y,preds,data,labs=c("grp1","grp2"),prior=c(0.2,0.8)) {
+  require(MASS)
+  Y_var <- Y
+  next.form <- as.formula(paste(Y_var,"~",paste(preds,collapse="+")))
+  next.mod <- lda(next.form,data=data ,prior=prior)
+  uu <- predict(next.mod)$class; vv <- labs[(1+data[[Y_var]])]
+  resulto <- table(uu,vv)
+  X <- predict(next.mod)$x
+  Y <- predict(next.mod)$class
+  senso <- resulto[2,2]/sum(resulto[,2])
+  speco <- resulto[1,1]/sum(resulto[,1])
+  ppp <- resulto[2,2]/sum(resulto[2,])
+  npp <- resulto[1,1]/sum(resulto[1,])
+  acco <- sum(diag(resulto))/(sum(resulto))
+  rownames(resulto) <- c(paste("Pred",labs,sep="-")) ; print(resulto); 
+  cat("\nSensitivity:",round(senso,3)," Specificity",round(speco,3),"\n")
+  cat("PPP:",round(ppp,3),"         NPP",round(npp,3),"\n")
+  cat("Overall Accuracy:",round(acco,3),"\n")
+  return(next.mod)
+}
+
+
+# check 1 T1D region between ichip results and new results
+check.region <- function(region,result,chip) {
+  region <- region[1,] # only check 1 region
+  chip  <- subsetByOverlaps(chip,region)
+  resultA <- result
+  ## overlapping SNP correlations ##
+  equal <- subsetByOverlaps(result,chip)
+  equal.pos <- start(equal);   equal.p <- mcols(equal)[,"p"]
+  chip.pos <- start(chip);   chip.p <- mcols(chip)[,"p.value"]
+  chip.ps <- chip.p[match(equal.pos,chip.pos)]
+  main.cor <- cor(-log10(chip.ps),-log10(equal.p),use="pairwise.complete")
+  ## NON-overlapping SNP correlations ##
+  result <- resultA[countOverlaps(resultA, chip) <= 1L] # get only non overlapping snps
+  en <- nrow(result)
+  test.regs <- make.granges(chr=chr(result)[-1],start=start(result)[-en],end=start(result)[-1])
+  p.set <- vector("list",nrow(test.regs))
+  for (cc in 1:nrow(test.regs)) {
+    p.set[[cc]] <- mcols(subsetByOverlaps(chip,test.regs[cc,]))[["p.value"]]
+  }
+  s.set <- vector("list",nrow(result))
+  s.set[[1]] <- p.set[[1]]; s.set[[length(s.set)]] <- tail(p.set,1)[[1]]
+  for(cc in 2:length(p.set)) {
+    s.set[[cc]] <- -log10(c(p.set[[cc-1]],p.set[[cc]]))
+  }
+  #return(s.set)
+  set.mins <- sapply(s.set,minna)
+  set.means <- sapply(s.set,meanna)
+  set.medians <- sapply(s.set,medianna)
+  rez <- -log10(mcols(result)[,"p"])
+  badz <- is.na(rez) | is.infinite(rez) | sapply(set.mins,length)==0
+  min.cor <- cor(rez[!badz],set.mins[!badz],use="pairwise.complete")
+  mean.cor <- cor(rez[!badz],set.means[!badz],use="pairwise.complete")
+  median.cor <- cor(rez[!badz],set.medians[!badz],use="pairwise.complete")
+  return(list(main=main.cor,min=min.cor,mean=mean.cor,median=median.cor))
+}
+
+# check.region(regions[180,],results2,ichip.data2)
+
+
+# return indexes of the vector X that are outliers according to either
+# a SD cutoff, interquartile range, or percentile threshold, above (high) and/or
+# below (low) the mean/median.
+which.outlier <- function(X, thr=3, method=c("sd","iq","pc"), high=TRUE, low=TRUE) {
+  x <- X
+  X <- narm(X)
+  X <- X[is.finite(X)]
+  if(length(X)>1) {
+    method <- substr(tolower(method),1,2)[1]
+    if(!method %in% c("sd","iq","pc")) { stop("invalid method, must be sd [std dev], iq [interquartile range], or pc [percentile]") }
+    if(method=="sd") {
+      stat <- sdna(X)
+      hi.thr <- meanna(X) + stat*thr
+      lo.thr <- meanna(X) - stat*thr
+    } else {
+      if(method=="iq") {
+        sl <- summary(X)
+        stat <- (sl[5]-sl[2])
+        hi.thr <- medianna(X) + stat*thr
+        lo.thr <- medianna(X) - stat*thr
+      } else {
+        stat <- pctile(X,pc=force.percentage(thr))
+        hi.thr <- stat[2] ; lo.thr <- stat[1]
+      }
+    }
+    if(high) {
+      outz <- X[X>hi.thr]
+    } else { outz <- NULL }
+    if(low) {
+      outz <- unique(c(outz,X[X<lo.thr]))
+    }
+    outz <- which(x %in% outz) # make sure indexes include the NA, Inf values
+    return(outz)
+  } else {
+    warning("outlier detection requires more than 1 datapoint")
+    return(numeric(0))
+  }
+}
+
+
+# check 1 T1D region between ichip results and new results
+# region: dense regions
+# result: snp results
+# chip: all ichip snps
+#'  pdf("testmyplot.pdf"); check.region2(regions[180,],results2,ichip.data2); dev.off()
+check.region2 <- function(region,result,chip,sd.thr=5) {
+  region <- region[1,] # only check 1 region
+  chip  <- subsetByOverlaps(chip,region) # all snps in region
+  result  <- subsetByOverlaps(result,region)
+  resultA <- result
+  ## overlapping SNP correlations ##
+  equal <- subsetByOverlaps(result,chip) # snp results for ichip snps
+  equal.pos <- start(equal);   equal.p <- mcols(equal)[,"p"]
+  chip.pos <- start(chip);   chip.p <- mcols(chip)[,"p.value"]; chipL10 <- -log10(chip.p)
+  chip.ids <- rownames(chip)
+  chip.ps <- chip.p[match(equal.pos,chip.pos)]
+  main.dif <- (-log10(equal.p)) - (-log10(chip.ps))
+  #print(summary(main.dif))
+  ## NON-overlapping SNP correlations ##
+  result <- resultA[countOverlaps(resultA, chip) <= 1L] # get only non overlapping snps
+  # find any with large difs
+  ind <- which.outlier(main.dif,low=FALSE)
+  outly.main.snps <- rownames(equal)[ind]
+  # select set with small difs as a reliable set
+  ind2 <- which.outlier(main.dif,low=FALSE,thr=1)
+  tight.main.snps <- rownames(equal)[-ind2]
+  # within the region, are any particularly large? 3SD or some thresh?
+  tight.ps <- -log10(mcols(equal[tight.main.snps,])[,"p"])
+  mn <- meanna(tight.ps); sD <- sdna(tight.ps)
+  thr <- mn+(sd.thr*sD)
+  # plot region 3 colz, ichip and ichip-impute, and new-impute,
+  # color anything close to being an outlier, use identify()
+  mcols(resultA)[["log10"]] <- -log10(mcols(resultA)[["p"]])
+  L10s <- -log10(mcols(resultA)[["p"]])
+  if(length(L10s)>1) {
+    yl <- extendrange(r=range(L10s,na.rm=T),f=.2); if(any(is.na(yl))) { print(L10s) ; yl <- NULL }
+    plot.ranges(resultA,alt.y="log10",do.labs=F,col="grey",pch=".",ylim=yl, 
+                main=paste("Chr",mcols(region)[,"Band"]),ylab="-log10 p-values",xlab="position")
+  } else { warning(paste("no data for region")); return(list(dif=NULL,outly=NULL)) }
+  if(length(chip.pos)>0 & length(chipL10)==length(chip.pos)) {
+    points(chip.pos,chipL10,col="blue",pch=".")
+  }
+  big.ones <- which(L10s>thr)
+  if(length(big.ones)>0) {
+    plot.ranges(resultA[big.ones,],alt.y="log10",do.labs=F,col="orange",skip.plot.new=TRUE) 
+  }
+  big.ones2 <- which(L10s>(thr*2))
+  if(length(big.ones2)>0) {
+    plot.ranges(resultA[big.ones2,],alt.y="log10",do.labs=T,col="orange1",skip.plot.new=TRUE) 
+  }
+  more.big.ones <- which(chipL10>thr)
+  if(length(more.big.ones)>0) {
+    points(chip.pos[more.big.ones],chipL10[more.big.ones],col="green") 
+    text(chip.pos[more.big.ones],chipL10[more.big.ones],labels=chip.ids[more.big.ones],cex=.7,col="darkgreen",pos=4) 
+  }
+  if(length(outly.main.snps)>0) {
+    plot.ranges(resultA[outly.main.snps,],alt.y="log10",do.labs=T,col="red",skip.plot.new=TRUE) 
+    points(chip.pos[chip.ids %in% outly.main.snps],chipL10[chip.ids %in% outly.main.snps],col="purple") 
+    for(dd in 1:length(outly.main.snps)) {
+      one <- resultA[outly.main.snps[dd],]
+      if(any(chip.pos==start(one))) {
+        YYy <- c(-log10(mcols(one)[,"p"]),chipL10[chip.pos==start(one)][1])
+        if(length(YYy)==2 & all(!is.na(YYy))) {
+          lines(rep(start(one),2),YYy,col="red")
+        }
+      }
+    }
+  }
+  legend("bottom",legend=c(paste0("imputed > ",sd.thr,"SD of reliable"),"> 3SD vs ichip",
+         paste0("ichip > ",sd.thr,"SD of reliable"),"ichip pvalues","imputation pvalues"),
+         col=c("orange","red","green","blue","grey"),pch=1,bty="n",ncol=3, cex=.75)
+  return(list(dif=outly.main.snps,outly=rownames(resultA)[big.ones],ichip=chip.ids[more.big.ones])) 
+}
+
