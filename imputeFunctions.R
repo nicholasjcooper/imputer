@@ -635,7 +635,7 @@ annot.sep.support <- function(snpMat, snp.info, sample.info, snp.excl=NULL,
     }
   } else { 
     snp.info <- force.frame(snp.info)
-    snp.info <- column.salvage(snp.info,"pos",c("Start","Pos","pos","POS","Pos37","pos37","Pos36","pos36"),ignore.case=FALSE)
+    snp.info <- column.salvage(snp.info,"pos",c("Start","Pos","pos","POS","Pos37","pos37","Pos36","pos36","position320"),ignore.case=FALSE)
     snp.info <- column.salvage(snp.info,"chr",c("chr","chromosome","chrom","chromo","space","seqnames"),ignore.case=TRUE)
     #snp.info <- column.salvage(snp.info,"end",c("end"),ignore.case=TRUE)
     print(head(snp.info))
@@ -1972,5 +1972,133 @@ check.region2 <- function(region,result,chip,sd.thr=5) {
          paste0("ichip > ",sd.thr,"SD of reliable"),"ichip pvalues","imputation pvalues"),
          col=c("orange","red","green","blue","grey"),pch=1,bty="n",ncol=3, cex=.75)
   return(list(dif=outly.main.snps,outly=rownames(resultA)[big.ones],ichip=chip.ids[more.big.ones])) 
+}
+
+
+# ichip.sets <- c("T1D","COELIAC","GRAVES","JIA","MS","RA1","RA2","RA3","RA4","RA5","RA6","IC.CASE","IC.CTRL")
+# gwas.sets <- c("Cases_UKC","Cases_UKN","Cases_UKP","Cases_UKW","Controls_Illu58C","Controls_IlluNBS")
+
+# personal function to return a SnpMatrixList for any of the project disease groups/sub-groups #
+get.sml <- function(disease="T1D",sub="",ms.sub="",dir.form=FALSE) {
+  diseasez <- c("T1D","COELIAC","GRAVES","JIA","MS","RA")
+  subz <- c("IC.CASE","IC.CTRL","WTCCC2",paste0("RA",1:6))
+  sub.d <- c(rep("MS",3),rep("RA",6))
+  ms.subz <- c("Cases_UKC","Cases_UKN","Cases_UKP","Cases_UKW","Controls_Illu58C","Controls_IlluNBS")
+  dis <- disease[1]
+  disease <- toupper(dis); sub <- toupper(sub[1]); ms.sub <- ms.sub[1]
+  if(is.na(sub)) { sub <- "" }
+  if(is.na(ms.sub)) { ms.sub <- "" }
+  if(is.null(sub)) { sub <- "" }
+  if(is.null(ms.sub)) { ms.sub <- "" }
+  if(!disease %in% diseasez) { 
+    if(!disease %in% subz) {
+      if(!disease %in% toupper(ms.subz)) {
+        stop("disease must be one of: ",comma(diseasez)) 
+      } else {
+        ms.sub <- dis; sub <- "WTCCC2"; disease <- "MS"
+      }
+    } else {
+      sub <- disease
+      disease <- sub.d[match(sub,subz)]
+    }
+  }
+  if(disease %in% sub.d) {
+    ii <- which(sub.d %in% disease)
+    if(!sub %in% subz[ii]) { stop("disease was ",disease," which needs one of the following values for sub:",comma(subz[ii]),"\n") }
+  } else { sub <- "" }
+  if(disease!="MS") { ms.sub <- "" }
+  if(!sub %in% c(subz,"")) { stop("sub must be one of: ",comma(subz)) } else {
+    if(sub=="WTCCC2") {
+      if(!ms.sub %in% c(ms.subz)) { stop("ms.sub is required when sub='WTCCC2'' and must be one of: ",comma(ms.subz)) }
+    }
+  }
+  dd <- paste0("/chiswick/data/ncooper/imputation/",disease,"/PQDATA/")
+  if(sub!="") {  
+    dd <- paste0(dd,sub,"/")
+    if(ms.sub!="") {  dd <- paste0(dd,ms.sub,"/") }
+  }
+  sml <- list.files(dd)
+  must.use.package("gtools")
+  sml <- gtools::mixedsort(sml)
+  if(!dir.form) {
+    sml <- cat.path(dd,sml)
+  }
+  sml <- as.list(sml)
+  #sml <- sml[c(18:19,26:40,1:17,20:24)]
+  if(dir.form) {
+    return(list(sml=sml,dir=dd))
+  } else {
+    return(sml)
+  }
+}
+
+
+#
+# PCs <- explore.PCs.13("T1D",cutoff=10^-7,PC.out=T,file="PCAT1D"); save(PCs,file="PCsT1D.RData")
+# PCs <- explore.PCs.13("GRAVES",cutoff=10^-4.3,PC.out=T,file="PCAGRAVES"); save(PCs,file="PCsGRAVES.RData")
+# PCs <- explore.PCs.13("COELIAC",cutoff=10^-6,PC.out=T,file="PCACOELIAC"); save(PCs,file="PCsCOELIAC.RData")
+# PCs <- explore.PCs.13("JIA",cutoff=10^-6,PC.out=T,file="PCAJIA"); save(PCs,file="PCsJIA.RData")
+# PCs <- explore.PCs.13("RA1",cutoff=10^-6,PC.out=T,file="PCARA1"); save(PCs,file="PCsRA1.RData")
+# PCs <- explore.PCs.13("RA2",cutoff=10^-5.5,PC.out=T,file="PCARA2"); save(PCs,file="PCsRA2.RData")
+# PCs <- explore.PCs.13("RA3",cutoff=10^-5,PC.out=T,file="PCARA3"); save(PCs,file="PCsRA3.RData")
+# PCs <- explore.PCs.13("RA4",cutoff=10^-4.5,PC.out=T,file="PCARA4"); save(PCs,file="PCsRA4.RData")
+# PCs <- explore.PCs.13("RA5",cutoff=10^-6.5,PC.out=T,file="PCARA5"); save(PCs,file="PCsRA5.RData")
+# PCs <- explore.PCs.13("RA6",cutoff=10^-6,PC.out=T,file="PCARA6"); save(PCs,file="PCsRA6.RData")
+# PCs <- explore.PCs.13("IC.CTRL",cutoff=10^-6,PC.out=T,file="PCAIC.CTRL"); save(PCs,file="PCsIC.CTRL.RData")
+# PCs <- explore.PCs.13("IC.CASE",cutoff=10^-6,PC.out=T,file="PCAIC.CASE"); save(PCs,file="PCsIC.CASE.RData")
+
+explore.PCs.13 <- function(disease,cutoff=10^-5,plot=FALSE, PC.out=FALSE,
+                           file="",pch.out=19, pch.clean=1, out34in12=FALSE) {
+  pca.pred.a.tg <- reader("/chiswick/data/ncooper/imputation/THOUSAND/PCs1000g.RData")
+  sample.info <- reader("/chiswick/data/ncooper/imputation/THOUSAND/sample.info.1000g.RData")
+  anc <- factor(sample.info$ancestry[match(rownames(pca.pred.a.tg),rownames(sample.info))])
+  (load(paste0("PCs",disease,".RData")))
+  ii <- Moutlier(PCs[,1:4],quantile=1-cutoff,plot=plot)
+  ii2 <- Moutlier(PCs[,1:2],quantile=1-(cutoff*100),plot=plot)
+  ww <- (which(ii$md>ii$cutoff))
+  ww2 <- (which(ii2$md>ii2$cutoff))
+  if(nchar(paste(file))>1) { pdf(cat.path(getwd(),file,ext="pdf"),width=15) }
+  par(mfrow=c(1,2))
+  ### PC 1 vs 2 ###
+  plot(pca.pred.a.tg[,1],pca.pred.a.tg[,2],col=get.distinct.cols(14)[as.numeric(anc)],
+       main="PCs 1-2",xlab="PC-1",ylab="PC-2")
+  points(PCs[,1],PCs[,2],pch=pch.clean)
+  points(pca.pred.a.tg[,1],pca.pred.a.tg[,2],col=get.distinct.cols(14)[as.numeric(anc)])
+  if(out34in12) { 
+    #points(PCs[ww,1],PCs[ww,2],col="white",pch=pch.clean) 
+    points(PCs[ww,1],PCs[ww,2],col="orange",pch=pch.out) 
+  }
+  #points(PCs[ww2,1],PCs[ww2,2],col="white",pch=pch.clean)
+  points(PCs[ww2,1],PCs[ww2,2],col="red",pch=pch.out)
+  legend("topleft",legend=paste(unique(anc)),col=get.distinct.cols(14)[as.numeric(unique(anc))],pch=19,ncol=3,bty="n")
+  
+  ### PC 3 vs 4 ###
+  plot(pca.pred.a.tg[,3],pca.pred.a.tg[,4],col=get.distinct.cols(14)[as.numeric(anc)],
+       main="PCs 3-4",xlab="PC-3",ylab="PC-4")
+  points(PCs[,3],PCs[,4],pch=pch.clean) 
+  points(pca.pred.a.tg[,3],pca.pred.a.tg[,4],col=get.distinct.cols(14)[as.numeric(anc)])
+  if(out34in12) {  
+    #points(PCs[ww2,3],PCs[ww2,4],col="white",pch=pch.clean) 
+    points(PCs[ww2,3],PCs[ww2,4],col="red",pch=pch.out) 
+  }
+  #points(PCs[ww,3],PCs[ww,4],col="white",pch=pch.clean)
+  points(PCs[ww,3],PCs[ww,4],col="orange",pch=pch.out)
+  legend("topleft",legend=c("outliers PC 1 vs 2","outliers PC 3 vs 4",
+                            paste("Non-outlier",disease),"thousand genomes (all other colours, see adjacent plot)"),
+         col=c("red","orange","black","grey"),pch=c(pch.out,pch.out,pch.clean,1),bty="n")
+  mtext(paste(disease,"ancestry PCA"), side = 3, line = -2, outer = TRUE,cex=1.5)
+  #####
+  if(nchar(file)>0) { dev.off() }
+  outliers <- rownames(PCs)[ww]
+  outliers2 <- rownames(PCs)[ww2]
+  outliers <- outliers[!outliers %in% outliers2]
+  if(PC.out) {
+    PCs[["outlier.code"]] <- 0
+    PCs[["outlier.code"]][rownames(PCs) %in% outliers] <- 1
+    PCs[["outlier.code"]][rownames(PCs) %in% outliers2] <- 2
+    return(PCs)
+  } else {
+    return(list(definite=outliers2,borderline=outliers))
+  }
 }
 
