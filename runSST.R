@@ -81,7 +81,7 @@ for (n.pc in c(1:num.pcs)) {
 ###### plot of lamdas ######
 if(do.plot) {
   lam.range <- c(0.75,1.5) # observed - manually set limits for the plot
-  pdf(cat.path(dir.out,"inflationVsLambda1000J.pdf"))
+  pdf(cat.path(dir.out,"inflationVsLambda1000K.pdf"))
     ## N's for case/controls for lambda 1000 calculations ##
     dis.ncases <- c(6317,6551,1214,4379,2694,1171) # for celiac,t1d,jia,ms,atd,ra respectively
     dis.nctrls <- c(12443,12443,12443,12443,12443,7234)

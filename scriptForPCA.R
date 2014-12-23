@@ -1,22 +1,29 @@
 #pca 1000 genomes for gwas
 
+init <- FALSE 
+
 library(reader); source("~/github/iChip/iFunctions.R"); source("~/github/plumbCNV/FunctionsCNVAnalysis.R")
-source("~/github/imputer/imputeFunctions.R")
+source("~/github/imputer/imputeFunctions.R"); library(gtools)
 
 sml <- mixedsort(list.files("./THOUSAND/TG12M.files/"))
 sml <- cat.path("/chiswick/data/ncooper/imputation/THOUSAND/TG12M.files/",sml)
 sml <- as.list(sml)
 
-res <- vector("list",39)
-for (dd in 1:length(res)) {
-  Header(paste(dd))
-  ii <- get.SnpMatrix.in.file(sml[[dd]])
-  res[[dd]] <- ld.prune.big(ii,thresh=.1,n.cores=16)
-  save(res,file="/chiswick/data/ncooper/imputation/THOUSAND/prunedLists.RData")
+if(init) {
+  res <- vector("list",39)
+  for (dd in 1:length(res)) {
+    Header(paste(dd))
+    ii <- get.SnpMatrix.in.file(sml[[dd]])
+    res[[dd]] <- ld.prune.big(ii,thresh=.1,n.cores=16)
+    save(res,file="/chiswick/data/ncooper/imputation/THOUSAND/prunedLists.RData")
+  }
+} else {
+  res <- reader("/chiswick/data/ncooper/imputation/THOUSAND/prunedLists.RData")
 }
+
 prune.snps <- unlist(lapply(res,names))
 prune.snps <- unique(prune.snps)
-writeLines(prune.snps,con="/chiswick/data/ncooper/imputation/THOUSAND/noLDsnpList1000g.txt")
+if(init) { writeLines(prune.snps,con="/chiswick/data/ncooper/imputation/THOUSAND/noLDsnpList1000g.txt") }
 
 ## get cases which only have 660K (~half) SNPs, and keep only the SNPs that are in both arrays for PCA ##
 ms2.dir <- "/chiswick/data/ncooper/imputation/MS/WTCCC2/Cases_UKN/"
@@ -24,8 +31,10 @@ casel <- mixedsort(list.files(ms2.dir,pattern="RData"))
 casel <- cat.path(ms2.dir,casel)
 case.msml <- as.list(casel) # only 379 samples
 cn <- colnamesL(case.msml,list=F)
-CN <- colnames(TG.aligned.pca)
-TG.aligned.pca <- TG.aligned.pca[,which(CN %in% cn)] # now have manageable 1092 x 76962 matrix for PCA
+prune.snps <- prune.snps[prune.snps %in% cn]
+if(init) { writeLines(prune.snps,con="/chiswick/data/ncooper/imputation/THOUSAND/noLDsnpList1000g660.txt") }
+# CN <- colnames(TG.aligned.pca)
+# TG.aligned.pca <- TG.aligned.pca[,which(CN %in% cn)] # now have manageable 1092 x 76962 matrix for PCA
 
 ## get the MS 1958BC controls to align to ##
 msdir <- "/chiswick/data/ncooper/imputation/MS/WTCCC2/Controls_Illu58C/"
@@ -37,24 +46,52 @@ sub.msml <- sampSel(msml,samples=sample(2930,1000))
 TGpruned <- snpSel(sml,prune.snps)
 which(!colnames(TGpruned) %in% colnames(sub.msml))
 # [1] 61901 # if this is here, need to remove using line below
-TGpruned <- TGpruned[,-61901]
-msmlDat <- sub.msml[,colnames(TGpruned)]
+# TGpruned <- TGpruned[,-61901]
 
-anc <- factor(sample.info$ancestry[match(rownames(TGpruned),rownames(sample.info))])
-TG.gbr <- TGpruned[anc=="GBR",]
-pdf("chrisplotMS.pdf") ; ms.gbr.aligned <- align.alleles(TG.gbr,msmlDat,mafdiff=.05); dev.off()
-pdf("chrisplotMS2.pdf") ; TG.aligned <- align.alleles(TGpruned,ms.gbr.aligned,mafdiff=.05); dev.off()
-
-sn <- (snps(TG.aligned))
+# remove TG uncertain genotypes
+sn <- (snps(TGpruned))
 ja <- paste(sn$allele.1,sn$allele.2,sep="")
 # remove uncertain genotypes #
 uncertain <- ja %in% c("AT","TA","CG","GC")
-TG.aligned.pca <- TG.aligned[,-which(uncertain)]
+TGpruned <- TGpruned[,-which(uncertain)]
+
+msmlDat <- sub.msml[,colnames(TGpruned)]
+
+# remove MS uncertain genotypes
+sn <- (snps(msmlDat))
+ja <- paste(sn$allele.1,sn$allele.2,sep="")
+# remove uncertain genotypes #
+uncertain <- ja %in% c("AT","TA","CG","GC")
+msmlDat <- msmlDat[,-which(uncertain)]
+
+TGpruned <- TGpruned[,colnames(msmlDat)]
+
+
+
+
+sample.info <- reader("/chiswick/data/ncooper/imputation/THOUSAND/sample.info.1000g.RData")
+anc <- factor(sample.info$ancestry[match(rownames(TGpruned),rownames(sample.info))])
+TG.gbr <- TGpruned[anc=="GBR",]
+pdf("chrisplotMS.pdf") ; TG.gbr.aligned <- align.alleles(TG.gbr,msmlDat,mafdiff=.01); dev.off()
+
+tg.raf <- col.summary(TG.gbr.aligned)$RAF
+ms.raf <- col.summary(msmlDat)$RAF
+ms.raf[is.na(ms.raf)] <- 0
+tg.raf[is.na(tg.raf)] <- 0
+bad.match <- which(abs(tg.raf-ms.raf)>0.1)
+TGpruned2 <- TGpruned[,-bad.match]
+msmlDat2 <- msmlDat[,-bad.match]
+TG.gbr2 <- TGpruned2[anc=="GBR",]
+pdf("chrisplotMS3.pdf") ; TG.gbr.aligned2 <- align.alleles(TG.gbr2,msmlDat2,mafdiff=.01); dev.off()
+
+
+pdf("chrisplotMS4.pdf") ; TG.aligned3 <- align.alleles(TGpruned2,TG.gbr.aligned2,mafdiff=.01); dev.off()
+
 
 
 ### RUN PCA on 1000 genomes GWAS and check it looks right ###
 # replace missing and create bigSnpMatrix #
-pruned.TG.MR <- randomize.missing2(TG.aligned.pca,verbose=TRUE)
+pruned.TG.MR <- randomize.missing2(TG.aligned3,verbose=TRUE)
 big1000.GWA <- bigSnpMatrix(pruned.TG.MR,"big1000gA")
 rm.a <- colmean(big1000.GWA)
 result.quick.A <- big.PCA(big.t(big1000.GWA),return.loadings=TRUE,center=rm.a)
@@ -69,7 +106,7 @@ snp.excl <- readLines("/chiswick/data/ncooper/imputation/MS/WTCCC2/snpsPreExclud
 
 ### Get the top 'n' loading SNP list ###
 # divide 1 by 2 of vec: estimate.eig.vpcs(result.quick.A$Evalues,M=big.t(big1000.GWA))$variance.pcs[1:2]
-top5pc.A <- rev(order((1*abs(result.quick.A$loadings[,1]))+(1.00*abs(result.quick.A$loadings[,2]))))[1:11578]
+top5pc.A <- rev(order((1*abs(result.quick.A$loadings[,1]))+(1.00*abs(result.quick.A$loadings[,2]))))[1:31578]
 top5pc.An <- colnames(big1000.GWA)[top5pc.A]
 top5pc.An <- top5pc.An[!top5pc.An %in% snp.excl]
 save(top5pc.A, top5pc.An, result.quick.A, anc,sample.info,pruned.TG.MR, file="pruned.list.PCA.1000g.gwas.RData")
@@ -77,16 +114,25 @@ load("pruned.list.PCA.1000g.gwas.RData")
 rm.a <- colMeans(big1000.GWA[,top5pc.An])
 ############################################################# 
 
-#### GET DATA FOR ALL THE MS GROUPS! ######
+
+
+
+
+
+############################################################# 
+
+
+#### GET GWAS DATA FOR ALL THE MS GROUPS! ######
 
 gwas.sets <- c("Controls_Illu58C","Controls_IlluNBS","Cases_UKC","Cases_UKN","Cases_UKP","Cases_UKW") #[-1]
 n.pc <- 10
 rm.a <- colmean(big1000.GWA) # get 1000 genomes means for each SNP
 top5pc.A <- match(top5pc.An,colnames(big1000.GWA)) # index instead of name
 dir.th <- "/chiswick/data/ncooper/imputation/THOUSAND"
-align <- FALSE
+align <- TRUE
 
-for (dd in 1:length(ichip.sets)) {
+
+for (dd in 1:length(gwas.sets)) {
   cat("Loading SnpMatrixList for ",gwas.sets[dd],"...")
   sml <- get.sml(gwas.sets[dd])
   SM <- snpSel(sml,snps=top5pc.An)
@@ -97,8 +143,8 @@ for (dd in 1:length(ichip.sets)) {
   SM <- SM[,top5pc.Bn]
   ## align the alleles to the original T1D dataset ###
   if(align) {
-    cat("Aligning aSnpMatrix to the 1958BC controls dataset...")
-    baseTG <- TG.aligned[,top5pc.Bn]
+    cat("Aligning aSnpMatrix to the 1000 genomes GBR dataset...")
+    baseTG <- TG.gbr2[,top5pc.Bn]
     pdf(cat.path(dir.th,"AlignPlot",suf=gwas.sets[dd],ext="pdf")) 
     SM2 <- align.alleles(SM,baseTG,mafdiff=.05); dev.off()
     cat("done\n")
@@ -120,14 +166,33 @@ for (dd in 1:length(ichip.sets)) {
   save(PCs,file=ofn)
   cat("wrote file: ",ofn,"\n")
   align <- TRUE
+
+if(dd==1) {
+  ######## MAKE DATA FRAME OF 1000 GENOMES top GWAS 10 PCs #########
+  mean.crct.tg <- (big1000.GWA[,top5pc.Bn]-rep(rm.a[top5pc.Bn],each=nrow(big1000.GWA)))
+
+  n.pc <- 10
+  pca.pred.a.tg <- as.data.frame(matrix(nrow=nrow(mean.crct.tg),ncol=n.pc+1))
+  colnames(pca.pred.a.tg) <- c(paste0("PC",1:n.pc),"ancestry")
+  for (cc in 1:n.pc) {
+    pca.pred.a.tg[,cc] <-  mean.crct.tg %*% result.quick.A$loadings[top5pc.Bn,cc]
+    corz <- cor(pca.pred.a.tg[,cc],result.quick.A$PCs[,cc],use="pairwise.complete")
+    cat("correlation of PC",cc,"with projection was: ",corz,"\n")
+  }
+  rownames(pca.pred.a.tg) <- rownames(pca.pred.a.tg[,cc])
+  pca.pred.a.tg[["ancestry"]] <- sample.info$ancestry[match(rownames(pca.pred.a.tg),rownames(sample.info))]
+}
+
   pdf(cat.path(dir.th,"PCA",suf=gwas.sets[dd],ext="pdf")); 
-  xl <- range(c(PCs[,1],pca.pred.a.tg[,1])); yl <- range(c(PCs[,2],pca.pred.a.tg[,2]))
-  plot(pca.pred.a.tg[,1],pca.pred.a.tg[,2],col=get.distinct.cols(14)[as.numeric(anc)] ,ylim=yl, xlim=xl)
-  points(PCs[,1],PCs[,2],col="black",pch="+")
-  legend("top",legend=paste(unique(anc)),col=get.distinct.cols(14)[as.numeric(unique(anc))],pch=19,ncol=4); dev.off()
+   xl <- range(c(PCs[,1],pca.pred.a.tg[,1])[-1]); yl <- range(c(PCs[,2],pca.pred.a.tg[,2])[-1])
+   plot(pca.pred.a.tg[,1],pca.pred.a.tg[,2],col=get.distinct.cols(14)[as.numeric(anc)] ,ylim=yl, xlim=xl)
+   points(PCs[,1],PCs[,2],col="black",pch="+")
+   legend("top",legend=paste(unique(anc)),col=get.distinct.cols(14)[as.numeric(unique(anc))],pch=19,ncol=4)
+  dev.off()
 }
 
 
+## AT a loss as to why this is not quite working. thinking about reimporting the 1000 genomes data, as perhaps the colnames got mixed up at some point??? ###
 
 
 

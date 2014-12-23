@@ -102,7 +102,8 @@ do.test <- function(Y) {
     npcs <- paste(paste0("PC",1:n.pc),collapse=" + ") # PC(s) text for formula string
     ctrl <- glm.test.control(maxit = 50, epsilon = 1.e-5, R2Max = 0.999)
     if(Y=="RA") {
-      form1 <- paste("ph ~ region +",npcs); prv(form1); form1 <- as.formula(form1)
+      #form1 <- paste("ph ~ region +",npcs); prv(form1); form1 <- as.formula(form1)
+      form1 <- paste("ph ~",npcs); prv(form1) ;form1 <- as.formula(form1)
       tmp.ss <- snp.rhs.tests(formula=form1,snp.data=tmp.X,data=PC.DAT,subset=(country!="UK"),control=ctrl)
     } else {
       form2 <- paste("ph ~",npcs); prv(form2) ;form2 <- as.formula(form2)
