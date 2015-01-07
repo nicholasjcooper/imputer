@@ -419,7 +419,7 @@ dup.pairs <- function(x,pairs.only=FALSE) {
 sync.id.by.pos <- function(ref.snp,snp.inf,return.ref.ids=FALSE) {
   if(!"position" %in% colnames(ref.snp)) { stop("ref.snp must have column 'position'") }
   if(!is(snp.inf)[1] %in% "ChipInfo") { stop("snp.inf must be a ChipInfo object") }
-  posz <- start(snp.inf)
+  posz <- startSnp.inf)
   rsz <- rownames(snp.inf)
   rsv <- rmv.trail(id.to.rs(rsz))
   icv <- rs.to.id(rsz)
@@ -588,8 +588,8 @@ read.hic <- function(fn, return.S4=TRUE, build=37) {
   hic <- all[,c(1,2,3,7,8,9,5,6,4,10)]
   #print(head(hic))
   if(return.S4) {
-    gr <- make.granges(hic$chr,start=hic[[2]],end=hic[[3]])
-    gr2 <- make.granges(hic$chr.end,start=hic[[5]],end=hic[[6]])
+    gr <- makeGRanges(hic$chr,start=hic[[2]],end=hic[[3]])
+    gr2 <- makeGRanges(hic$chr.end,start=hic[[5]],end=hic[[6]])
     #colnames(hic) <- make.names(colnames(hic))
     source("~/github/imputer/hiClass.R")
     hic <- HiC(gr,gr2,hic$N.reads,hic$score,build,hic[[9]],hic[[10]])
@@ -626,7 +626,7 @@ snp.end.overlap <- function(snps, hic, index.only=FALSE, combine=TRUE, chr.only=
       if(nchar(paste(chr.only))<4) { ch <- paste0("chr",chr.only) } else { ch <- chr.only }
       range.only <- c(1,(get.chr.lens(mito=TRUE,names=TRUE)[ch]))
     } 
-    range.limit <- make.granges(chr=chr.only,start=range.only[1],end=range.only[2])
+    range.limit <- makeGRanges(chr=chr.only,start=range.only[1],end=range.only[2])
     #prv(rownames(snps))
     snps <- subsetByOverlaps(snps,range.limit)
     #print(as.numeric(rownames(snps)))
@@ -664,7 +664,7 @@ fmsnps <- read.table("/chiswick/data/ncooper/imputation/T1D/FMSNPS.csv",stringsA
 colnames(fmsnps) <- c("chr","start","end","width","strand","band","p","rs.id")
 nz <- which(fmsnps$rs.id=="NONE")
 fmsnps <- fmsnps[-nz,]
-fmSnps <- data.frame.to.granges(fmsnps)
+fmSnps <- data.frame.to.GRanges(fmsnps)
 pv <- mcols(fmSnps)[,"p"]
   
 fmSnps2 <- fmSnps[!duplicated(start(fmSnps)),]
@@ -691,7 +691,7 @@ result[c("rs61281301","rs201801601","rs150652635","rs57151617","rs35072264","rs6
 extras <- reader("~/Downloads/markers2.csv") # from https://mart.immunobase.org/martanalysis/#!/Markers/maker_id_upload?
 result[is.na(result[,2]),1] <- paste(extras[[1]][match(rs.all[is.na(result[,2])],rownames(extras))])
 result[is.na(result[,2]),2] <- paste(extras[[2]][match(rs.all[is.na(result[,2])],rownames(extras))])
-gresult <- data.frame.to.granges(result,build=37) # last one is 'NONE'
+gresult <- data.frame.to.GRanges(result,build=37) # last one is 'NONE'
 rm(bigRS) # free up the memory
 ####### READ IN THE HiC DATA #######
 cd4 <- read.hic("/chiswick/data/ncooper/imputation/HiC/cd4_upto1M_out.txt")
@@ -738,7 +738,7 @@ ichip.celiac <- ibase[,"celiac_trynka",drop=F]
 #rs.maybe <- paste0("rs",abs(mmrt))
 #rss <-(rs.to.id(rs.maybe))
 #ic.rsids <- character(); for (cc in 1:10) { ic.rsids[cc] <- substr(ichip.rsids[cc],1,nchar(ichip.rsids[cc])-17) } #slow
-#notgot <- (which(!ic.rsids %in% rownames(get.support())))
+#notgot <- (which(!ic.rsids %in% rownames(chip.support())))
 #ic.rsids[notgot] <- rss[notgot]
 (load("ic.rsids.backup.RData")) # instead of commented out lines above
 
@@ -891,7 +891,7 @@ plot.hic <- function(hic, alt.y="score", exp.pc=.5, fn=NULL, build=NULL, verbose
   if(!is.null(xlim)) {
     xlim <- narm(as.numeric(xlim))
     if(length(xlim)!=2) { stop("xlim should be an x-axis range, a numeric vector of length 2")}
-    range.limit <- make.granges(chr=main.chr,start=xlim[1],end=xlim[2])
+    range.limit <- makeGRanges(chr=main.chr,start=xlim[1],end=xlim[2])
     if(is.null(rownames(hic))) { rownames(hic) <- paste(1:length(hic)) }
     rn <- rownames(hic)
     hic.set <- subsetByOverlaps(bait(hic),range.limit)
@@ -899,13 +899,13 @@ plot.hic <- function(hic, alt.y="score", exp.pc=.5, fn=NULL, build=NULL, verbose
     to.keep <- match(rn.sub,rn)
     ltk <- length(to.keep)
     if(ltk<1) { 
-      warning("no hic entries found on ",Ranges.to.txt(range.limit))
+      warning("no hic entries found on ",ranges.to.txt(range.limit))
       if(plot.new){
         plot(1,1,ylim=ylim, xlim=xlim, col="white", xlab=paste("Chromosome",main.chr),ylab=alt.y[1]) }
       return() 
     }
     hic <- hic[to.keep,]
-    if(ltk>0 & verbose) { message(ltk," hic entries found on ",Ranges.to.txt(range.limit)) }
+    if(ltk>0 & verbose) { message(ltk," hic entries found on ",ranges.to.txt(range.limit)) }
   }
   if(length(col.bait)!=1 & length(col.bait)!=length(hic)) { stop("col.bait must have length 1, or the same length as hic (including any filters)") }
   if(length(col.end)!=1 & length(col.end)!=length(hic)) { stop("col.end must have length 1, or the same length as hic (including any filters)") }
@@ -915,7 +915,7 @@ plot.hic <- function(hic, alt.y="score", exp.pc=.5, fn=NULL, build=NULL, verbose
   n.chr <- length(chrz)
 #  if(n.chr>2) { stop("cannot plot bait data that transitions across more than 1 other chromosome") }
   all.locs <- c(start(hic[[main.chr]]), end(hic[[main.chr]]), start2(hic[[main.chr]]), end2(hic[[main.chr]]))
-  main.rng <- extend.50pc(range(all.locs),Chr=main.chr,snp.info=get.support(build=build),pc=exp.pc) # extend 50pc is from FunctionsCNVAnalysis.R
+  main.rng <- extend.50pc(range(all.locs),Chr=main.chr,snp.info=chip.support(build=build),pc=exp.pc) # extend 50pc is from FunctionsCNVAnalysis.R
   if(!is.null(alt.y)) {
     if(is.numeric(alt.y)) {
       if(length(alt.y)==1 | length(alt.y)==length(hic)) {
@@ -948,7 +948,7 @@ plot.hic <- function(hic, alt.y="score", exp.pc=.5, fn=NULL, build=NULL, verbose
   n.sets <- length(hic)
   for (cc in 1:n.sets) {
     p1 <- bait(hic[cc,]); p2 <- otherEnd(hic[cc,])
-    plot.ranges(p1,alt.y=alt.y,lwd=lwd.ranges, do.labs=F, col=col.bait,skip.plot.new=T)
+    plotRanges(p1,alt.y=alt.y,lwd=lwd.ranges, do.labs=F, col=col.bait,skip.plot.new=T)
     c1 <- abs(end(p1)-start(p1))/2 + min(start(p1),end(p1))
     c2 <- abs(end(p2)-start(p2))/2 + min(start(p2),end(p2))
     yoffs <- (diff(ylim)/20)*join.scl
@@ -962,7 +962,7 @@ plot.hic <- function(hic, alt.y="score", exp.pc=.5, fn=NULL, build=NULL, verbose
       lines(coords[1:2,],col=col.join,lty=lty.join[1])
       lines(coords[2:3,],col=col.join,lty=lty.join[1])
       arrows(coords[3,1],coords[3,2],coords[3,1]+xoffs/100,coords[3,2],length=.1)
-      text(coords[3,,drop=F],labels=paste0(Ranges.to.txt(p2)),cex=.5,pos=3+sw)
+      text(coords[3,,drop=F],labels=paste0(ranges.to.txt(p2)),cex=.5,pos=3+sw)
 #      message("for region ",cc,", 'other-end' had a different chromosome to the bait, plotting this is not yet implemented!")
     } else {
       midpt <- abs(c2-c1)/2 + min(c1,c2)
@@ -970,7 +970,7 @@ plot.hic <- function(hic, alt.y="score", exp.pc=.5, fn=NULL, build=NULL, verbose
         middst <- abs(c2-midpt)
         yoffs <- middst*(diff(ylim)/diff(xlim)) # distance to make chevrons at fixed 45 degree angle
       }
-      plot.ranges(p2,alt.y=alt.y,lwd=lwd.ranges, do.labs=F, col=col.end,skip.plot.new=T)
+      plotRanges(p2,alt.y=alt.y,lwd=lwd.ranges, do.labs=F, col=col.end,skip.plot.new=T)
       if(length(lty.join)==1) { lty.join <- rep(lty.join,2) }
       lines(c(c1,midpt),yy[cc]+c(0,yoffs),col=col.join,lty=lty.join[1])
       lines(c(midpt,c2),yy[cc]+c(yoffs,0),col=col.join,lty=lty.join[2])
@@ -1004,9 +1004,9 @@ midpoint <- function(x) {
 
 #' @param regions GRanges object containing phenotype regions of interest to plot over, essentially
 #' an object specifying chr, start, end, and optionally 'band', e.g, 8q23.1, etc. You can create
-#' easily from standard vectors using make.granges()
+#' easily from standard vectors using makeGRanges()
 #' @param snps GRanges object containing SNPs tested for the study, essentially an object 
-#' specifying chr and pos, You can create easily from standard vectors using make.granges()
+#' specifying chr and pos, You can create easily from standard vectors using makeGRanges()
 #' @param hic.list list of HiC objects, see 'HiC()', assuming a separate HiC type element for each
 #' tissue. These objects can be imported from  Seqmonk browser 
 #' files (http://www.bioinformatics.babraham.ac.uk/projects/seqmonk/), or created using HiC().
@@ -1106,7 +1106,7 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
         rng0 <- range(c(rng0,rng2),na.rm=T)
       }
     }
-    rng <- extend.50pc(rng0,Chr=nxt.chr,snp.info=get.support(build=build),pc=exp.pc) # extend 50pc is from FunctionsCNVAnalysis.R
+    rng <- extend.50pc(rng0,Chr=nxt.chr,snp.info=chip.support(build=build),pc=exp.pc) # extend 50pc is from FunctionsCNVAnalysis.R
     hi.ind <- match(rownames(regions)[cc],names(All.Tissues[[fi]]))
     #return(All.Tissues)
     #print(rownames(regions)[cc]); prv(names(All.Tissues[[fi]])); prv(fi)
@@ -1148,7 +1148,7 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
 #                              col.bait=tissue.cols[fi], col.end=tissue.cols[fi], col.join="black",
 #                              lwd.ranges=2, lty.join=c("dashed","dotted")[2])
 #       } else {
-#         plot.ranges(rngz,alt.y=y.column,lwd=2,
+#         plotRanges(rngz,alt.y=y.column,lwd=2,
 #                   ylim=ylim, xlim=rng,do.labs=F, col=tissue.cols[fi], xlab=paste("Chromosome",nxt.chr),ylab=y.column)
 #       }
       if(n.tissue>0 & fi<n.tissue) {
@@ -1166,7 +1166,7 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
                        col.bait=tissue.cols[dd], col.end=tissue.cols[dd], col.join="black", 
                        lwd.ranges=2, lty.join=c("dashed","dotted")[2])
             } else {
-              plot.ranges(rngz,alt.y=y.column,lwd=2,
+              plotRanges(rngz,alt.y=y.column,lwd=2,
                         do.labs=F, col=tissue.cols[dd],skip.plot.new=T)
             }
           }
@@ -1174,24 +1174,24 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
       }
     } else {
       print(regions[cc,])
-      warning("region ",cc," [",Ranges.to.txt(regions[cc,]),"] had no rownames in any tissue of 'hic.list'")
+      warning("region ",cc," [",ranges.to.txt(regions[cc,]),"] had no rownames in any tissue of 'hic.list'")
       plot(1,1,col="white",main=paste("region",cc,"was empty"))
       #text(midpoint(rng),midpoint(ylim), labels=paste("region",cc,"was empty"))
     }
     lblz <- if("band" %in% colnames(mcols(regions))) { "band" } else { NULL }
     ### PLOT the REGION ###
-   ## print(Ranges.to.txt(this.region))
+   ## print(ranges.to.txt(this.region))
     if(by.bait) {
-      plot.ranges(this.region,skip.plot.new=T,col=reg.col,lwd=3, labels=lblz, pos=2) # alt.y=rep(2,length(cc))
+      plotRanges(this.region,skip.plot.new=T,col=reg.col,lwd=3, labels=lblz, pos=2) # alt.y=rep(2,length(cc))
     } else {
-      plot.ranges(regions[cc,],skip.plot.new=T,col=reg.col,lwd=3, labels=lblz, pos=2) # alt.y=rep(2,length(cc))
+      plotRanges(regions[cc,],skip.plot.new=T,col=reg.col,lwd=3, labels=lblz, pos=2) # alt.y=rep(2,length(cc))
     }
     ### PLOT the overlapping GENES ###
     if(!is.null(genes.col)) {
-      plot.gene.annot(chr=nxt.chr,pos=rng,scl="b",y.ofs=.5,build=build,gs=gs, box.col=genes.col)
+      plotGeneAnnot(chr=nxt.chr,pos=rng,scl="b",y.ofs=.5,build=build,gs=gs, box.col=genes.col)
     }
     #### PLOT ANY SNPS in RANGE ###
-    range.limit <- make.granges(chr=nxt.chr,start=rng0[1],end=rng0[2],build=build)
+    range.limit <- makeGRanges(chr=nxt.chr,start=rng0[1],end=rng0[2],build=build)
     sub.snps <- subsetByOverlaps(snps,range.limit)
     myseq <- c(start(regions[cc,]),start(toGenomeOrder(sub.snps)),end(regions[cc,]))
     #print(myseq)
@@ -1210,10 +1210,10 @@ plot.across.tissues <- function(regions, snps, hic.list, fn=NULL, bait=FALSE, en
         cz <- get.distinct.cols(lss)
       }
       if(!leg.snps) { rownames(sub.snps) <- paste0(". ",rownames(sub.snps)) } # hack to offset the names a little
-      plot.ranges(sub.snps,skip.plot.new=T,col=cz,
+      plotRanges(sub.snps,skip.plot.new=T,col=cz,
                   pch=snp.pch,srt=90,alt.y=rep(1.5,lss),do.labs=!leg.snps, pos=4) 
       if(leg.snps) { legend("topleft",legend=rownames(sub.snps), col=cz, pch=snp.PCH, cex=cx, bty="n", ncol=nCl) }
-    } else { warning("no overlapping snps in ",Ranges.to.txt(range.limit),"\n") }
+    } else { warning("no overlapping snps in ",ranges.to.txt(range.limit),"\n") }
     legend("topright",legend=names(All.Tissues),lwd=2,col=tissue.cols,bty="n")
     #### END PLOT SNPS ####
     loop.tracker(cc,up.to)
@@ -1260,7 +1260,7 @@ remove.duplicated.ranges <- function(X) {
   chrn <- chrNames2(X)
   names(XX) <- chrn
   for(chrz in chrn) {
-    XX[[chrz]] <- do.one.chr(chr.sel(X,chrz))
+    XX[[chrz]] <- do.one.chr(chrSel(X,chrz))
     ct <- ct + 1
   }
   X <- do.call("rbind",args=XX)
@@ -1470,11 +1470,11 @@ if(F) {
   results <- results[,c(1:3,13)]
   results[["chr"]] <- 21
   
-  results2 <- data.frame.to.granges(results,chr="chr",start="position",end="position")
+  results2 <- data.frame.to.GRanges(results,chr="chr",start="position",end="position")
   
   ichip.data <- reader("/chiswick/data/ncooper/imputation/COMMON/iChipPaperAnalysisResultsFeb2014.RData")
   
-  ichip.data2 <- data.frame.to.granges(ichip.data[,1:5])
+  ichip.data2 <- data.frame.to.GRanges(ichip.data[,1:5])
   
   regions <- reader("/chiswick/data/ncooper/imputation/COMMON/iChipFineMappingRegionsB37.RData")
   regions <- as(regions,"GRanges")
@@ -1499,7 +1499,7 @@ if(F) {
   results$chr <- paste(results$chr)
   results$chr[results$chr=="2-part-1"] <- 2
   results$chr[results$chr=="2-part-2"] <- 2
-  results2 <- data.frame.to.granges(results,chr="chr",start="position",end="position")
+  results2 <- data.frame.to.GRanges(results,chr="chr",start="position",end="position")
   nR <- nrow(regions)
   res <- vector("list",nR); 
   names(res) <- mcols(regions)[,"Band"]
@@ -1639,7 +1639,7 @@ check.region <- function(region,result,chip) {
   ## NON-overlapping SNP correlations ##
   result <- resultA[countOverlaps(resultA, chip) <= 1L] # get only non overlapping snps
   en <- nrow(result)
-  test.regs <- make.granges(chr=chr(result)[-1],start=start(result)[-en],end=start(result)[-1])
+  test.regs <- makeGRanges(chr=chr(result)[-1],start=start(result)[-en],end=start(result)[-1])
   p.set <- vector("list",nrow(test.regs))
   for (cc in 1:nrow(test.regs)) {
     p.set[[cc]] <- mcols(subsetByOverlaps(chip,test.regs[cc,]))[["p.value"]]
@@ -1700,7 +1700,7 @@ check.region2 <- function(region,result,chip,sd.thr=5) {
   L10s <- -log10(mcols(resultA)[["p"]])
   if(length(L10s)>1) {
     yl <- extendrange(r=range(L10s,na.rm=T),f=.2); if(any(is.na(yl))) { print(L10s) ; yl <- NULL }
-    plot.ranges(resultA,alt.y="log10",do.labs=F,col="grey",pch=".",ylim=yl, 
+    plotRanges(resultA,alt.y="log10",do.labs=F,col="grey",pch=".",ylim=yl, 
                 main=paste("Chr",mcols(region)[,"Band"]),ylab="-log10 p-values",xlab="position")
   } else { warning(paste("no data for region")); return(list(dif=NULL,outly=NULL)) }
   if(length(chip.pos)>0 & length(chipL10)==length(chip.pos)) {
@@ -1708,11 +1708,11 @@ check.region2 <- function(region,result,chip,sd.thr=5) {
   }
   big.ones <- which(L10s>thr)
   if(length(big.ones)>0) {
-    plot.ranges(resultA[big.ones,],alt.y="log10",do.labs=F,col="orange",skip.plot.new=TRUE) 
+    plotRanges(resultA[big.ones,],alt.y="log10",do.labs=F,col="orange",skip.plot.new=TRUE) 
   }
   big.ones2 <- which(L10s>(thr*2))
   if(length(big.ones2)>0) {
-    plot.ranges(resultA[big.ones2,],alt.y="log10",do.labs=T,col="orange1",skip.plot.new=TRUE) 
+    plotRanges(resultA[big.ones2,],alt.y="log10",do.labs=T,col="orange1",skip.plot.new=TRUE) 
   }
   more.big.ones <- which(chipL10>thr)
   if(length(more.big.ones)>0) {
@@ -1720,7 +1720,7 @@ check.region2 <- function(region,result,chip,sd.thr=5) {
     text(chip.pos[more.big.ones],chipL10[more.big.ones],labels=chip.ids[more.big.ones],cex=.7,col="darkgreen",pos=4) 
   }
   if(length(outly.main.snps)>0) {
-    plot.ranges(resultA[outly.main.snps,],alt.y="log10",do.labs=T,col="red",skip.plot.new=TRUE) 
+    plotRanges(resultA[outly.main.snps,],alt.y="log10",do.labs=T,col="red",skip.plot.new=TRUE) 
     points(chip.pos[chip.ids %in% outly.main.snps],chipL10[chip.ids %in% outly.main.snps],col="purple") 
     for(dd in 1:length(outly.main.snps)) {
       one <- resultA[outly.main.snps[dd],]

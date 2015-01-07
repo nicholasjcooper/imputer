@@ -692,7 +692,7 @@ setAs("HiC", "RangedData",
       }
 )
 
-setAs("HiC", "data.frame", function(from) { ranged.to.data.frame(as(from,"GRanges"),include.cols=TRUE) })
+setAs("HiC", "data.frame", function(from) { ranges.to.data.frame(as(from,"GRanges"),include.cols=TRUE) })
 
 
 setValidity("HiC",
@@ -863,7 +863,7 @@ ucsc.sanitizer <- function(build,allow.multiple=FALSE,show.valid=FALSE) {
 # internal (from iFunctions)
 # MAYBE8
 # note that this will preserve only chr,start,end, nothing else including rownames
-ranged.to.data.frame <- function(ranged,use.names=TRUE) {
+ranges.to.data.frame <- function(ranged,use.names=TRUE) {
   u <- as(ranged,"data.frame")
   cn <- tolower(colnames(u))
   if(is(ranged)[1]=="RangedData") {
@@ -887,15 +887,15 @@ ranged.to.data.frame <- function(ranged,use.names=TRUE) {
 # from iFunctions internal?
 # convenience function to use GRanges
 # MAYBE7
-data.frame.to.granges <- function(dat,...) {
-  return(data.frame.to.ranged(dat=dat,...,GRanges=TRUE))
+data.frame.to.GRanges <- function(dat,...) {
+  return(data.frame.to.ranges(dat=dat,...,GRanges=TRUE))
 }
 
 # internal from iFunctions iFunctions
 # MAYBE6
 ## convert any data frame with chr,start,end, or pos data into a RangedData object
 # not case sensitive
-data.frame.to.ranged <- function(dat,ids=NULL,start="start",end="end",width=NULL,
+data.frame.to.ranges <- function(dat,ids=NULL,start="start",end="end",width=NULL,
                                  chr="chr",exclude=NULL,build=NULL,GRanges=FALSE) 
 {
   ## abandon longer names as they clash with function names

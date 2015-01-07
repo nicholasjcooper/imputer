@@ -12,8 +12,8 @@ options(ucsc="hg19")
 if(F) {
   
   rm(all.support)
-  ichip37 <- get.support(build=37)
-  ichip36 <- get.support(build=36)
+  ichip37 <- chip.support(build=37)
+  ichip36 <- chip.support(build=36)
   
   
 print(load(cat.path(impute.dir,"all.rr.RData")))
@@ -53,7 +53,7 @@ anc.excl <- reader("/chiswick/data/ncooper/iChipData/ancestryExclSamps.txt")
 snp.excl <- reader("/chiswick/data/ncooper/iChipData/snpsExcluded.txt")
 samp.excl <- unique(c(anc.excl,reader("/chiswick/data/ncooper/iChipData/sampsExcluded.txt")))
 
-sup <- get.support()
+sup <- chip.support()
 
 for (chrnum in 22:1) {
 
