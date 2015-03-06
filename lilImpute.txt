@@ -987,6 +987,9 @@ GRAVES, JIA, COELIAC, MS, RA, T1D
 
 
 
+## working on trying to track down IDs, etc, for some of the remaining gwas SNPs.
+## ended up not being so useful.
+
 print(load("/chiswick/data/ncooper/imputation/SNPREF/lookupTableAllRSids.RData"))
 #bigRS
 print(load("/chiswick/data/ncooper/imputation/MS/WTCCC_MS_SnpSupport.RData"))

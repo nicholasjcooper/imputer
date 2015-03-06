@@ -1,17 +1,21 @@
 #pca 1000 genomes for gwas
 
-init <- FALSE 
+init <- TRUE # FALSE 
+setwd("/chiswick/data/ncooper/imputation/THOUSAND/")
 
-library(reader); source("~/github/iChip/iFunctions.R"); source("~/github/plumbCNV/FunctionsCNVAnalysis.R")
+library(reader); #source("~/github/iChip/iFunctions.R"); source("~/github/plumbCNV/FunctionsCNVAnalysis.R")
+library(humarray); library(bigpca)
+source("~/github/plumbCNV/SnpMatrixList.R")
 source("~/github/imputer/imputeFunctions.R"); library(gtools)
 
-sml <- mixedsort(list.files("./THOUSAND/TG12M.files/"))
+sml <- mixedsort(list.files("/chiswick/data/ncooper/imputation/THOUSAND/TG12M.files/"))
 sml <- cat.path("/chiswick/data/ncooper/imputation/THOUSAND/TG12M.files/",sml)
 sml <- as.list(sml)
 
 if(init) {
-  res <- vector("list",39)
-  for (dd in 1:length(res)) {
+  res <- reader("/chiswick/data/ncooper/imputation/THOUSAND/prunedLists.RData")
+  #res <- vector("list",39)
+  for (dd in 1:1) { #length(res)) {
     Header(paste(dd))
     ii <- get.SnpMatrix.in.file(sml[[dd]])
     res[[dd]] <- ld.prune.big(ii,thresh=.1,n.cores=16)

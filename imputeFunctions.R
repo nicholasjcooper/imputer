@@ -248,7 +248,7 @@ sep.alleles <- function(genotype,missing=NA) {
 sync.id.by.pos <- function(ref.snp,snp.inf,return.ref.ids=FALSE) {
   if(!"position" %in% colnames(ref.snp)) { stop("ref.snp must have column 'position'") }
   if(!is(snp.inf)[1] %in% "ChipInfo") { stop("snp.inf must be a ChipInfo object") }
-  posz <- startSnp.inf)
+  posz <- start(snp.inf)
   rsz <- rownames(snp.inf)
   rsv <- rmv.trail(id.to.rs(rsz))
   icv <- rs.to.id(rsz)
