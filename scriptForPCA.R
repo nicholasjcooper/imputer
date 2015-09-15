@@ -1,6 +1,6 @@
 #pca 1000 genomes for gwas
 
-init <- TRUE # FALSE 
+init <-  FALSE 
 setwd("/chiswick/data/ncooper/imputation/THOUSAND/")
 
 library(reader); #source("~/github/iChip/iFunctions.R"); source("~/github/plumbCNV/FunctionsCNVAnalysis.R")
@@ -15,7 +15,7 @@ sml <- as.list(sml)
 if(init) {
   res <- reader("/chiswick/data/ncooper/imputation/THOUSAND/prunedLists.RData")
   #res <- vector("list",39)
-  for (dd in 1:1) { #length(res)) {
+  for (dd in 2:2) { #length(res)) {
     Header(paste(dd))
     ii <- get.SnpMatrix.in.file(sml[[dd]])
     res[[dd]] <- ld.prune.big(ii,thresh=.1,n.cores=16)
@@ -100,6 +100,7 @@ big1000.GWA <- bigSnpMatrix(pruned.TG.MR,"big1000gA")
 rm.a <- colmean(big1000.GWA)
 result.quick.A <- big.PCA(big.t(big1000.GWA),return.loadings=TRUE,center=rm.a)
 #anc <- factor(sample.info$ancestry[match(rownames(big1000.GWA),rownames(sample.info))])
+
 pdf("PCA1000.Gwas.pdf")
  plot(result.quick.A$PCs[,"PC1"],result.quick.A$PCs[,"PC2"],col=get.distinct.cols(14)[as.numeric(anc)],ylim=c(-.05,.1))
  legend("top",legend=paste(unique(anc)),col=get.distinct.cols(14)[as.numeric(unique(anc))],pch=19,ncol=4)
@@ -108,9 +109,10 @@ dev.off()
 
 snp.excl <- readLines("/chiswick/data/ncooper/imputation/MS/WTCCC2/snpsPreExcludedAll.txt")
 
+num.to.use <- min(c(ncol(big1000.GWA),81855),na.rm=T) # 31578
 ### Get the top 'n' loading SNP list ###
 # divide 1 by 2 of vec: estimate.eig.vpcs(result.quick.A$Evalues,M=big.t(big1000.GWA))$variance.pcs[1:2]
-top5pc.A <- rev(order((1*abs(result.quick.A$loadings[,1]))+(1.00*abs(result.quick.A$loadings[,2]))))[1:31578]
+top5pc.A <- rev(order((1*abs(result.quick.A$loadings[,1]))+(1.00*abs(result.quick.A$loadings[,2]))))[1:num.to.use]
 top5pc.An <- colnames(big1000.GWA)[top5pc.A]
 top5pc.An <- top5pc.An[!top5pc.An %in% snp.excl]
 save(top5pc.A, top5pc.An, result.quick.A, anc,sample.info,pruned.TG.MR, file="pruned.list.PCA.1000g.gwas.RData")
@@ -226,7 +228,7 @@ pruned.1000g <- asm.1000g.aligned[,names(unlist(ld.pruned))]
 save(ld.pruned,pruned.1000g,file="pruned.list1000g.RData")
 #save(ld.pruned,file="pruned.list_gwas_1000g.RData")
 
-lsml <- sampSel(sml,samples=sample(15000,1000),dir=dd)
+lsml <- sampSel(sml,samples=sample(15000,1000),dir=dd) # random selection of 1000 samples
 sample.info <- reader("/chiswick/data/ncooper/iChipData/sample.info.RData")
 asmT1D <- annot.sep.support(snpMat=lsml,snp.info=ichip.local, sample.info=sample.info)
 (load("/chiswick/data/ncooper/imputation/THOUSAND/thousandGenomesAndIChip.RData"))
@@ -368,18 +370,19 @@ pdf("chrisplot.pdf") ; asm.1000g.aligned2 <- align.alleles(asm.1000g,asmT1D,mafd
 ichip.sets <- c("T1D","COELIAC","GRAVES","JIA","RA1","RA2","RA3","RA4","RA5","RA6","IC.CASE","IC.CTRL") #[-1]
 n.pc <- 10
 rm.a <- colmean(big1000.A) # get 1000 genomes means for each SNP
-top5pc.A <- match(top5pc.An,colnames(big1000.A)) # index instead of name
+top5pc.A <- match(top5pc.An,colnames(big1000.A)) # get index instead of SNP ids
 dir.th <- "/chiswick/data/ncooper/imputation/THOUSAND"
 align <- FALSE
 
+# loop for each dataset #
 for (dd in 2:length(ichip.sets)) {
   cat("Loading SnpMatrixList for ",ichip.sets[dd],"...")
   sml <- get.sml(ichip.sets[dd])
   SM <- snpSel(sml,snps=top5pc.An)
   cat("done\n")
-  bad.ids.a <- rmv.common.missing(X=SM,Y=pruned.1000g.MR)
-  top5pc.Bn <- top5pc.An[!clean.snp.ids(top5pc.An) %in% clean.snp.ids(bad.ids.a)]
-  top5pc.B <- match(top5pc.Bn,colnames(big1000.A)) # index instead of name
+  bad.ids.a <- rmv.common.missing(X=SM,Y=pruned.1000g.MR) # remove SNPs missing in either current dataset or 1000 genomes
+  top5pc.Bn <- top5pc.An[!clean.snp.ids(top5pc.An) %in% clean.snp.ids(bad.ids.a)] # remove SNPs on QC-fail list
+  top5pc.B <- match(top5pc.Bn,colnames(big1000.A)) # get index instead of SNP ids
   SM <- SM[,top5pc.Bn]
   ## align the alleles to the original T1D dataset ###
   if(align) {

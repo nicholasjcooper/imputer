@@ -4,9 +4,10 @@ Header(paste("Chr",cc))
 
 
 ## files we will make
-f.plot <- paste0(ndir,diseases,"/allelematch-",chrz[cc],args$arm,".png")
-f.impute <- paste0(ndir,"ALL","/impute-",chrz[cc])
-f.snps <- paste0(ndir,"ALL","/snps-dropped-for-impute-",chrz[cc],".csv.gz")
+#f.plot <- paste0(ndir,diseases,"/allelematch-",chrz[cc],args$arm,".png")
+
+f.impute <- cat.path(ndir,paste0("impute-",chrz[cc]))
+f.snps <- cat.path(ndir,paste0("snps-dropped-for-impute-",chrz[cc],".csv.gz"))
 
 ## load IMPUTE 1000 genomes Phase 3 legend file
 head(legend <- read.table(f.legend[cc],header=TRUE,as.is=TRUE))
@@ -27,11 +28,26 @@ for(i in seq_along(cohorts)) {
   #See /ipswich/data/T1DGC/R-objects/support/ for the sample support objects
 }
 
+cr.thr <- c(.95,.95,.98)
 
 for(i in seq_along(cohorts)) {
   csumm <- col.summary(XX[[i]])
-  XX[[i]] <- XX[[i]][, csumm[,"Call.rate"] > 0.98 & abs(csumm[,"z.HWE"])<5 ]
+  XX[[i]] <- XX[[i]][, csumm[,"Call.rate"] > cr.thr[i] & abs(csumm[,"z.HWE"])<5 ]
 }
+
+
+if(FALSE) {
+  i <- 1
+  # fn <- cat.path(getwd(),"callRateDistributions",suf=i,ext="pdf")
+  ii <- doSnpQC(sml[[i]],sample.info=sample.info,snp.info=snp.info)
+  hwe.density.plots(Z.hwe=ii$SNP.INFO$Z.hwe,hwe.thr=5,dir=getwd(),fn=cat.path("","hwe",suf=i,ext="pdf"))
+  hwe.vs.callrate.plots(call.rate=ii$SNP.INFO$call.rate,Z.hwe=ii$SNP.INFO$Z.hwe,
+                      callrate.snp.thr=.95,hwe.thr=5,dir=getwd())
+  jj <- doSampQC(sml[[i]],het.lo=.29,het.hi=.34)
+  draw.density.plots(fn,jj$SAMPLE.INFO,ii$SNP.INFO)
+
+}
+
 
 ## check SNP overlap
 for(i in 1:(length(cohorts)-1)) {
@@ -43,22 +59,31 @@ for(i in 1:(length(cohorts)-1)) {
 }
 
 ## align and merge
+pdf(cat.path(home.dir,"alignplot",suf=cc,ext="pdf"))
+
 par(mfrow=c(2,2))
-for(i in 1:(length(cohorts)-1)) {
-  for(j in (i+1):length(cohorts)) {
+#for(j in 1:(length(cohorts)-1)) {
+j <- 1
+  for(i in (j+1):length(cohorts)) {
     message()
-    message(cohorts[[i]], " ", cohorts[[j]])
-    m <- match(colnames(XX[[i]]),colnames(XX[[j]]))
+    message(cohorts[[i]], " ", cohorts[[j]]) ## in each case 1 was 'j'
+    m <- match(colnames(XX[[i]]),colnames(XX[[j]])) ## in each case 1 was 'j'
     d1 <- XX[[i]][,!is.na(m)]
-    d2 <- XX[[j]][,m[!is.na(m)]]
-    sw <- align.alleles(d1, d2, mafdiff=0.05)
-    title(sub=paste(cohorts[[i]], "-", cohorts[[j]]))
+    d2 <- XX[[j]][,m[!is.na(m)]]  ## in each case 1 was 'j'
+    # print(col.summary(d1)["rs12251307",])
+    # print(col.summary(d2)["rs12251307",])
+    XX[[i]][,!is.na(m)] <- align.alleles(d1, d2, mafdiff=0.05)  # was 'sw'
+    # print(col.summary(sw)["rs12251307",])
+    title(sub=paste(cohorts[[i]], "-", cohorts[[j]]))  ## in each case 1 was 'j'
   }
-}
+#}
+dev.off()
 
+cat("combining 3 cohorts to one file\n")
+YY <- do.call("sync.asnp.mats", args=XX)
+X <- gt.for.impute <- do.call("rbind3",args=YY)
+cat("new dimension for chr ",cc," is",dim(X)[1],",",dim(X)[2],"\n")
 
-jj <- 1
-X <- gt.for.impute <- XX[[jj]]
 alleles <- snps(X)
 alleles$RAF <- col.summary(X)[,"RAF"]
 si <- snp.info.from.annot(X)
@@ -108,7 +133,7 @@ if(any.impossible) {
   n.impossible <- length(wh)
   message(n.impossible, " impossible matches found, they will be removed:")
   #print(cbind(snp=alleles$rs.id[index.disease][wh],disease=x.alleles[wh],legend=y.alleles[wh]))
-  print(cbind(snp=alleles$rs.id[wh],disease=x.alleles[wh],legend=y.alleles[wh]))
+  prv(cbind(snp=alleles$rs.id[wh],disease=x.alleles[wh],legend=y.alleles[wh]))
   sw[wh] <- NA
 }
 
@@ -158,13 +183,15 @@ print(Dim(X))
 ## duplicates
 drop <- which(duplicated(alleles$position))
 if(length(drop)) {
+  cat(length(drop),"duplicated SNPs being dropped\n")
   alleles <- alleles[-drop,]
   X <- X[,-drop]
 }
 
 csumm <- col.summary(X)
-drop <- which(csumm[,"Call.rate"]<0.95)
+drop <- which(csumm[,"Call.rate"]<0.05)
 if(length(drop)) {
+  cat(length(drop),"SNPs with >95% missingness being dropped\n")
   alleles <- alleles[-drop,]
   X <- X[,-drop]
 }
@@ -172,25 +199,38 @@ if(length(drop)) {
 
 drop <- which(!substr(alleles$legend.alleles,1,1) %in% c("A","C","G","T"))
 if(length(drop)) {
+  cat(length(drop),"SNPs with invalid NON-REF allele codes being dropped\n")
   alleles <- alleles[-drop,]
   X <- X[,-drop]
 }
 
 drop <- which(!substr(alleles$legend.alleles,3,3) %in% c("A","C","G","T"))
 if(length(drop)) {
+  cat(length(drop),"SNPs with invalid REF allele codes being dropped\n")
   alleles <- alleles[-drop,]
   X <- X[,-drop]
 }
 
 drop <- which(substr(alleles$legend.alleles,3,3)==substr(alleles$legend.alleles,1,1))
 if(length(drop)) {
+  cat(length(drop),"SNPs with impossible allele codes being dropped\n")
   alleles <- alleles[-drop,]
   X <- X[,-drop]
 }
 
-write.table(alleles,file=gzfile(f.snps),quote=FALSE,sep="\t",row.names=FALSE)
+if(write.imputes) {
+  #prv(f.snps,f.impute)
+  write.table(alleles,file=gzfile(f.snps),quote=FALSE,sep="\t",row.names=FALSE)
+  #write.impute(X, a1=substr(alleles$legend.alleles,1,1),a2=substr(alleles$legend.alleles,3,3),bp=alleles$position, fileroot=f.impute,
+  #rs.id=alleles$legend.id, snp.id=alleles$Name)
+  cat("\nwrote summary file for chromosome",cc,"to ",f.snps,"\n")
+  write.impute(X, a1=substr(alleles$legend.alleles,1,1),a2=substr(alleles$legend.alleles,3,3),bp=alleles$position, pedfile=f.impute, snp.id=rownames(alleles))
+  cat("wrote impute file for chromosome",cc,"to ",f.impute,"\n")
+}
 
-#write.impute(X, a1=substr(alleles$legend.alleles,1,1),a2=substr(alleles$legend.alleles,3,3),bp=alleles$position, fileroot=f.impute,
-#rs.id=alleles$legend.id, snp.id=alleles$Name)
-
-write.impute(X, a1=substr(alleles$legend.alleles,1,1),a2=substr(alleles$legend.alleles,3,3),bp=alleles$position, pedfile=f.impute, snp.id=rownames(alleles))
+if(write.snpmatrix) {
+  ofn <- cat.path(paste0(base.dir,"IMPUTE_INPUT"),fn="snpmat",suf=cc,ext="RData")
+  save(X,file=ofn)
+  cat("wrote aSnpMatrix object for chromosome",cc,"to",ofn,"\n")
+ # save(X,file=cat.path(paste0("/chiswick/data/ncooper/barrett","IMPUTE_INPUT"),fn="snpmat",suf=cc,ext="RData"))
+}
