@@ -171,9 +171,9 @@ for (dd in c(22:1)) {
 }
 
 
-(load("chr22_GWASinfo_by_sample.RData"))
-(load("chr22_GWASinfo.RData"))
-(load("chr22_GWASresults.RData"))
+(load("/chiswick/data/ncooper/barrett/chr22_GWASinfo_by_sample.RData"))
+(load("/chiswick/data/ncooper/barrett/chr22_GWASinfo.RData"))
+(load("/chiswick/data/ncooper/barrett/chr22_GWASresults.RData"))
 
 
 save(SML,SML2,outl,outl2,file="/chiswick/data/ncooper/barrett/nickWorkingThu.RData")
@@ -288,8 +288,8 @@ all.ill.ids <- unique(c(ill.int.ids, ill.only.ids))
 setwd("~/barrett")
 lambda.1000.affy <- lambda.1000.ill <- lambda.1000 <- numeric(22)
 res.list.affy <- res.list.ill <- res.list <- vector("list",22)
-for (j in 22:1) {
-  fnz <- get.impute.chr.fn("OUTPUT",j)
+for (j in 20:20) {
+  fnz <- get.impute.chr.fn("OUTPUT_ILLU",j)
   res.list.nxt <- mclapply(as.list(fnz),analyse.impute.file,sample.info=sample.info,add.interp=TRUE,samp.subset=all.affy.ids,mc.cores=20)
   res.list.affy[[j]] <- do.call("rbind",args=res.list.nxt)
   res.list.nxt <- mclapply(as.list(fnz),analyse.impute.file,sample.info=sample.info,add.interp=TRUE,samp.subset=all.ill.ids,mc.cores=20)
@@ -400,6 +400,7 @@ si2$phenotype[rownames(si2) %in% all.affy.ids] <- 1
 si2$phenotype[rownames(si2) %in% all.ill.ids] <- 2
 si2[["phenocode"]] <- c("affy","illu")[si2$phenotype]
 save(si2,file="/chiswick/data/ncooper/barrett/sampleInfoCtrlVsCtrl.RData")
+(load("/chiswick/data/ncooper/barrett/sampleInfoCtrlVsCtrl.RData"))
 
 # run a new loop
 
@@ -417,4 +418,16 @@ for (j in 22:1) {
 }
 
 
+## get col.summaries for controls
+
+#lambda.1000.ctrl <- numeric(22)
+sum.list.ctrl <- vector("list",22)
+for (j in 22:1) {
+  fnz <- get.impute.chr.fn("OUTPUT",j)
+  sum.list.nxt <- mclapply(as.list(fnz),summarize.impute.file,sample.info=si2,samp.subset=all.cont,mc.cores=20)
+  sum.list.ctrl[[j]] <- do.call("rbind",args=sum.list.nxt)
+  save(sum.list.ctrl,file="/chiswick/data/ncooper/barrett/ColSummary_CTRLAffVsIll.RData")
+}
+
+(load("/chiswick/data/ncooper/barrett/ColSummary_CTRLAffVsIll.RData"))
 

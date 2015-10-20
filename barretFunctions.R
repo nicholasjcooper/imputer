@@ -9,6 +9,21 @@ get.chr.sml <- function(chr,location="~/barrett/OUTPUT/",common.txt="SnpMatrix")
 }
 
 
+# for aSnpMatrix, a better 'write.impute' function
+asm.write.impute <- function(X,fn="testmat22") {
+  if(!is(X)[1] %in% c("aSnpMatrix","aXSnpMatrix")) { stop("X must an aSnpMatrix object") }
+  acoln <- alleles(X)
+  dir <- dirname(fn)
+  fn <- basename(fn)
+  curdir <- getwd()
+  if(!dir %in% c(".","./","",getwd())) { setwd(dir) } # this function doesn't seem to be able handle paths
+  poz <- snps(X)$position
+  if(any(poz!=sort(poz))) { message("warning: IMPUTE2 will not read files correctly if not sorted by SNP position") }
+  if(length(unique(snps(X)$chromosome))>1) { stop("You should only have 1 chromosome per file for this function (or for IMPUTE2)") }
+  write.impute(X,a1=snps(X)[[acoln[1]]],a2=snps(X)[[acoln[2]]],bp=snps(X)$position, pedfile=fn, snp.id=colnames(X))
+  setwd(curdir) # restore original working directory
+}
+
 cohort.alignment.check <- function(snpmat,cohort=NULL,sample.info=NULL) {
   ## enter snpMatrix, and either 'sample.info' or 'cohort' vector
   # checks RAFs of each cohort for consistency, prints report to terminal output #
@@ -232,7 +247,9 @@ get.impute.chr.fn <- function(dir,chr=22,full.names=TRUE,info.only=FALSE,by.samp
       ii <- ii[c(grep("out_info",ii))]
     }
   } else {
-    ii <- ii[-c(grep("info",ii),grep("warnings",ii),grep("summary",ii))]
+    mm <- c(grep("sample",ii),grep("info",ii),grep("warnings",ii),grep("summary",ii))
+    if(length(mm)>0) { ii <- ii[-mm] }
+    #ii <- ii[-c(grep("sample",ii),grep("info",ii),grep("warnings",ii),grep("summary",ii))]
   }
   if(length(grep("SnpMatrix",ii))>0) { ii <- ii[-c(grep("SnpMatrix",ii))] }
   ii <- gtools::mixedsort(ii)
@@ -243,16 +260,23 @@ get.impute.chr.fn <- function(dir,chr=22,full.names=TRUE,info.only=FALSE,by.samp
 # starting with a filename and a sample info file for the whole dataset, read in an impute file (assuming for 1-5MB) and 
 # run simple GWAS OR/SE analysis for each SNP, optionally returning with annotation too.
 # ... further arguments to snp.rhs.estimates, e.g, subset=<SAMPLE_SUBSET>
-analyse.impute.file <- function(fn,sample.info=NULL,add.info=TRUE,add.interp=FALSE,samp.subset=NULL,
+analyse.impute.file <- function(fn,sample.info=NULL,add.info=TRUE,add.interp=FALSE,samp.subset=NULL,smp="~/barrett/sampleIDs.txt",
                                 save.snpmat=TRUE,restore=TRUE,nPCs=0,PC.source.fn="/chiswick/data/ncooper/barrett/result.quick.A.RData") { 
   if(is.null(sample.info)) { stop("must provide sample.info") }
-  smp <- readLines("~/barrett/sampleIDs.txt")
+  #smp <- readLines("~/barrett/sampleIDs.txt")
+  if(!file.exists(smp)) { stop("could not read sample file",smp) } 
+  smp <- readLines(smp)
   new.fn <- cat.path(dirname(fn),rmv.ext(basename(fn),F),suf="SnpMatrix",ext="RData")
   #oo <- file.exists(new.fn); prv(new.fn,oo,restore)
   if(file.exists(new.fn) & restore) { 
     s1 <- reader(new.fn); cat("read",new.fn,"\n") 
   } else {
-    s1 <- read.impute(fn,rownames=smp)
+    #smp <- readLines("~/barrett/sampleIDs.txt")
+    success <- T
+    success <- tryCatch(s1 <- read.impute(fn,rownames=smp),error=function(e) { F } )
+    if(!is.logical(success)) { success <- T }
+    if(!success) { warnings("read.impute failed for file: ",fn); stop("impute file not read") }
+    #s1 <- read.impute(fn,rownames=smp)
     if(any(nchar(colnames(s1))>127)) { colnames(s1) <- substr(colnames(s1),1,127) }
     if(save.snpmat) {
       X <- s1
@@ -260,6 +284,7 @@ analyse.impute.file <- function(fn,sample.info=NULL,add.info=TRUE,add.interp=FAL
       rm(X)
     }
   }
+  if(!is(s1)[1]=="SnpMatrix") { message("read failed for file: ",new.fn) }
   ph <- get.pheno(s1,sample.info,verbose=FALSE)
   sdat <- as(s1,"SnpMatrix")
   if(any(nchar(colnames(sdat))>127)) { colnames(sdat) <- substr(colnames(sdat),1,127) }
@@ -305,6 +330,44 @@ analyse.impute.file <- function(fn,sample.info=NULL,add.info=TRUE,add.interp=FAL
   return(res)
 }
 
+# just like 'analyse.impute.file' but does a comparitive col.summary between phenotypes
+summarize.impute.file <- function(fn,sample.info=NULL,samp.subset=NULL,
+                                save.snpmat=TRUE,restore=TRUE) {
+  if(is.null(sample.info)) { stop("must provide sample.info") }
+  #smp <- readLines("~/barrett/sampleIDs.txt")
+  new.fn <- cat.path(dirname(fn),rmv.ext(basename(fn),F),suf="SnpMatrix",ext="RData")
+  #oo <- file.exists(new.fn); prv(new.fn,oo,restore)
+  if(file.exists(new.fn) & restore) {
+    s1 <- reader(new.fn); cat("read",new.fn,"\n")
+  } else {
+    smp <- readLines("~/barrett/sampleIDs.txt")
+    s1 <- read.impute(fn,rownames=smp)
+    if(any(nchar(colnames(s1))>127)) { colnames(s1) <- substr(colnames(s1),1,127) }
+    if(save.snpmat) {
+      X <- s1
+      save(X,file=new.fn)
+      rm(X)
+    }
+  }
+  ph <- get.pheno(s1,sample.info,verbose=FALSE)
+  sdat <- as(s1,"SnpMatrix")
+  if(any(nchar(colnames(sdat))>127)) { colnames(sdat) <- substr(colnames(sdat),1,127) }
+  if(!is.null(samp.subset)) {
+    iii <- which(rownames(sdat) %in% samp.subset)
+    ph <- ph[iii] ; sdat <- sdat[iii,]
+    #print(Dim(sdat))
+  } else {
+    # print("no subsetting")
+  }
+  estz1 <- col.summary(sdat[ph==0,])
+  estz2 <- col.summary(sdat[ph==1,])
+  estz <- cbind(estz1,estz2)
+  colnames(estz) <- c(paste(colnames(estz1),"1",sep="."),paste(colnames(estz2),"2",sep="."))
+  return(estz)
+}
+
+
+
 # using a snpmatrix and phenotype vector, run GWAS analysis and add effect direction info
 annotated.snp.analysis <- function(snpmat,pheno) {
   ph <- pheno
@@ -338,7 +401,8 @@ add.dirs.to.result <- function(result,s1,pheno) {
 
 
 do.a.qq <- function(p.values,suf="") {
-  pdf(cat.path("/chiswick/data/ncooper/barrett","chiqq",ext="pdf",suf=suf))
+  ofn <- cat.path("/chiswick/data/ncooper/barrett","chiqq",ext="pdf",suf=suf)  
+  pdf(ofn) #cat.path("/chiswick/data/ncooper/barrett","chiqq",ext="pdf",suf=suf))
   #prv(p.meta)
   #p.meta <- narm(p.meta)
   txt <- paste("Imputed GWAS (ChiSq) [",toheader(paste(gsub("."," ",suf,fixed=T),"regions")),"]",sep="")
@@ -351,6 +415,7 @@ do.a.qq <- function(p.values,suf="") {
   text(three4(xx),three4(yy),paste("slope =",round(coefficients(lm(yy~xx))[2],3)))
   lines(x=qchisq(1-((1:LL)/LL),1),y=qchisq(1-((1:LL)/LL),1),col="red",lty="dotted")
   dev.off()
+  cat("wrote QQ-plot to:",ofn,"\n")
 }
 
 
@@ -544,3 +609,330 @@ convert.snpmat.uncertain.to.normal <- function(X) {
   rownames(Y) <- rownames(X); colnames(Y) <- colnames(X)
   return(Y)
 }
+
+
+
+
+one.row <- function(x) { 
+  hrs <- days <- mins <- 0
+  mn.days <- c(jan=31,feb=28,mar=31,apr=30,may=31,jun=30,jul=31,aug=31,sep=30,oct=31,nov=30,dec=31)
+  #Sep  20 01:45 BIG15_16IllA100.sh Sep  20 09:57 BIG15_16IllA100.sh.o5126484
+  #1    2   3    4                   5    6   7   8       
+  if(x[5]!=x[1]) days <- days + mn.days[tolower(x[1])]
+  if(x[6]!=x[2]) days <- days + (as.numeric(x[6])-as.numeric(x[2]))
+  ss <- strsplit(paste(x[c(3,7)]),":",fixed=T)
+  hrs <- as.numeric(ss[[2]][1]) - as.numeric(ss[[1]][1])
+  mins <- as.numeric(ss[[2]][2]) - as.numeric(ss[[1]][2])
+  hrs <- hrs + (days*24) + (mins/60)
+  return(hrs)
+}
+
+
+nms.x <- function(x) {
+  ss <- strsplit(paste(x[4]),"BIG|[_]|Ill|[.]")[[1]]
+  ss <- ss[!ss %in% c("","sh","BIG")]
+  out <- c(NA,NA,NA,NA)
+  out[1:length(ss)] <- ss
+  out <- out[1:4]
+  return(out)
+}
+
+#ii <- reader("timesum.txt")
+
+get.timings <- function(read){
+  if(length(Dim(read))==2) { ii <- read } else { stop("invalid 'read'") } 
+  if(any(read$Mon=="6Sep")) { read$Mon <- gsub("6Sep","Sep",read$Mon,fixed=T) } 
+  if(any(read$Mon=="3Sep")) { read$Mon <- gsub("3Sep","Sep",read$Mon,fixed=T) }
+  if(any(read$Mon=="8Sep")) { read$Mon <- gsub("8Sep","Sep",read$Mon,fixed=T) }
+  if(any(read$Mon=="6Oct")) { read$Mon <- gsub("6Oct","Oct",read$Mon,fixed=T) }
+  if(any(read$Mon=="3Oct")) { read$Mon <- gsub("3Oct","Oct",read$Mon,fixed=T) }
+  if(any(read$Mon=="8Oct")) { read$Mon <- gsub("8Oct","Oct",read$Mon,fixed=T) }
+  ii <- ii[order(ii$Name),]
+  nm <- ii$Name
+  pref <- sapply(strsplit(nm,".",fixed=T),head,n=1)
+  suf <- get.ext(nm)
+#prv(ii,nm)  #,pref,suf)
+  pre <- ii[suf=="sh",]
+  post <- ii[suf!="sh",][match(pref[suf=="sh"],pref[suf!="sh"]),]
+  big <- cbind(pre,post)
+  big <- narm(big)
+
+  #orig.big <- big 
+  hrs <- apply(big,1,one.row)
+  labs <- t(apply(big,1,nms.x))
+  #prv(labs,big)
+  colnames(labs) <- paste0("nm",1:ncol(labs))
+  big[["hrs"]] <- hrs
+  big <- cbind(big,labs)
+  oo <- sapply(big$Name,readLines,n=1)
+  info <- t(sapply(oo, extract.info.from.cmd))
+  
+#  prv(big,info)
+  big <- cbind(big,info)
+  return(big)
+}
+
+
+
+extract.info.from.cmd <- function(cmd) {
+  if(is.character(cmd)) { oo <- cmd } else { stop("cmd must be a character string") }
+  ss <- strsplit(oo," ")[[1]]
+  ssi <- which(ss=="-int") ; if(length(ssi)>0) { lr <- ss[ssi+1]; hr <- ss[ssi+2] } else { lr <- hr <- NA } 
+  ssi <- which(ss=="-sample_g") ; if(length(ssi)>0) { smp <- ss[ssi+1]; smp <- basename(smp) } else { smp <- NA } 
+  ssi <- which(ss=="-exclude_samples_g") ; if(length(ssi)>0) { excl <- ss[ssi+1]; excl <- basename(excl) } else { excl <- NA } 
+  ssi <- which(ss=="-g") ; if(length(ssi)>0) { dat <- ss[ssi+1]; dat <- basename(dat) } else { dat <- NA } 
+  chr <- tail(strsplit(dat,"-",fixed=T)[[1]],1)
+  out <- c(dat=dat,excl=excl,smp=smp,chr=chr,lr=lr,hr=hr)
+  return(out)
+}
+
+
+
+progress.checkinator <- function(dir) {
+  ll <- list.files(dir,pattern=".sh.o",full.names=TRUE)
+  sh <- rmv.ext(ll,only.known=F)
+  oo <- sapply(sh,readLines,n=1)
+# prv(oo)
+  info <- t(sapply(oo, extract.info.from.cmd))
+ 
+  filz <- lapply(as.list(ll),readLines) 
+  lastz <- sapply(filz,function(x) { paste0(tail(x,2),collapse="") })
+  class <- rep("INCOMPLETE",length(lastz))
+  class[lastz=="Have a nice day!"] <- "DONE"
+  class[substr(lastz,1,12)=="MCMC iterati"] <- "IN_PROGRESS"
+  class[substr(lastz,1,12)=="There are no"] <- "EMPTY"
+  class[substr(lastz,1,12)=="ERROR: There"] <- "EMPTY"
+  class[substr(lastz,1,12)=="Your current"] <- "EMPTY"
+  outcome <- class
+  out <- cbind(basename(ll),info,outcome)
+  rownames(out) <- rmv.ext(rmv.ext(basename(ll),F),F)
+  colnames(out)[1] <- "log.file"
+  return(out)
+}
+
+
+
+# get lots of useful information from an IMPUTE_OUTPUT folder from log files
+# sometimes coln=6, sometimes =7, needs to be used for some reason
+summarise.impute.output.dir <- function(dir,coln=6) {
+  cur.dir <- getwd()
+  setwd(dir); system(paste0("cd ",dir))
+  system(paste0("bash -c \" cat <(echo 'Mon Day Time Name') <(ls -lt | cut -f ",coln,"- -d ' ' | sed 's/[0-9][0-9][0-9]\\ //g' | sed 's/.Sep/Sep/g' | sed 's/\\ \\ /\\ /g' | tail -n +3 | grep -v 'complete_flags' ) > timesum.txt \" "))
+  ii <- reader("timesum.txt",header=T) #col.names=T,row.names=F,sep=" ")  
+  tt <- get.timings(ii) 
+  uu <- progress.checkinator(dir)
+  outcome <- uu[,8]
+  out <- cbind(tt[match(uu[,"log.file"],tt[,"Name.1"]),],outcome)
+  setwd(cur.dir)
+  return(out)
+}
+
+
+compare.impute.calls <- function(s1,s2, samps.to.compare=all.affy.ids, 
+                                   plot.fn=NULL,uncertain=F) {
+  if(uncertain) {
+    S1 <- convert.snpmat.uncertain.to.normal(s1)
+    S2 <- convert.snpmat.uncertain.to.normal(s2)
+  } else { S1 <- s1; S2 <- s2 }
+  # sync SNPs
+  S2a <- S2[,snpsIn(S2,colnames(S1))]
+  S1a <- S1[,snpsIn(S1,colnames(S2a))]
+  S2a <- S2a[,colnames(S1a)]
+  # sync samples
+  S1a <- S1a[sampsIn(S1a, samps.to.compare),]
+  S2a <- S2a[sampsIn(S2a, samps.to.compare),]
+  S2a <- S2a[sampsIn(S1a,rownames(S2a)),]
+  S1a <- S1a[sampsIn(S2a,rownames(S1a)),]
+  S2a <- S2a[rownames(S1a),]
+  tot <- nrow(S1a); nc <- ncol(S1a); dif <- numeric(nc)
+  for (cc in 1:nc) { dif[cc] <- length(which(S1a[,cc]!=S2a[,cc])); loop.tracker(cc,nc) }
+
+  print(summary(dif))
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#    0.0    32.0   104.0   309.9   336.0  2542.0 
+  print(summary(dif/tot))
+#    Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#0.000000 0.004734 0.015390 0.045850 0.049710 0.376100 
+
+  print(cor(col.summary(as(S1a,"SnpMatrix"))$MAF,col.summary(as(S2a,"SnpMatrix"))$MAF,use="pairwise.complete"))  #[1] 0.997459
+  if(is.character(plot.fn)) {
+    pdf(plot.fn)
+    plot(col.summary(as(S1a,"SnpMatrix"))$MAF,
+       col.summary(as(S2a,"SnpMatrix"))$MAF,pch=".")
+    dev.off()
+    send.to.pwf(plot.fn)
+  }
+}
+
+
+analyse.dual.snpmatrices <- function(fn,sample.info=NULL,add.info=TRUE,add.interp=TRUE,
+   dir1,dir2,prog=FALSE,add.strat=FALSE,verbose=TRUE) {
+  COMB <- combine.affy.illu(fn,verbose=verbose)
+  ph <- get.pheno(COMB,sample.info,verbose=FALSE)
+  sdat <- as(COMB,"SnpMatrix")
+
+  if(add.strat) {
+    strat <- factor(get.aff.ill.vec(COMB))
+    estz2 <- snp.rhs.estimates(ph ~ strata(strat), family="binomial", snp.data=sdat, uncertain=T)
+  } else {
+    estz2 <- snp.rhs.estimates(ph ~ 1, family="binomial", snp.data=sdat, uncertain=T)
+  }
+  res <- estimates.to.results(estz2)
+  if(add.info) {
+    info <- impute.rn.to.info(sdat)
+    #prv(res,info)
+    res <- cbind(res,info[rownames(res),])
+  }
+  if(add.interp) {
+    # do caseway and majmin, adjust directions for ORs
+    res <- add.dirs.to.result(res,sdat,ph)
+  }
+  if(prog) { cat("*") }
+  #prv(res)
+  return(res)
+}
+
+
+best.match.to.common.snps <- function(AFF,ILL,verbose=TRUE,print.fails=FALSE,row.names=FALSE) {
+  if(length(Dim(AFF))!=2) { stop("AFF must have 2 dimenions") }
+  if(length(Dim(ILL))!=2) { stop("ILL must have 2 dimenions") }
+  if(row.names) { AFF <- t(AFF); ILL <- t(ILL) }
+  ind <- intersect(colnames(AFF),colnames(ILL))
+  # established perfect matches above
+  # now below find those that match the rs, e.g, ignore latter of rsid:...:...
+  caf <- colnames(AFF)[!colnames(AFF) %in% ind]
+  cil <- colnames(ILL)[!colnames(ILL) %in% ind]
+  caf2 <- sapply(strsplit(caf,":",fixed=T),"[",1)
+  cil2 <- sapply(strsplit(cil,":",fixed=T),"[",1)
+  ind2 <- intersect(caf2,cil2)
+  caf3 <- caf[match(ind2,caf2)]
+  cil3 <- cil[match(ind2,cil2)]
+  # in each case, select the longer of the 2 names as the 'official' version
+  ind3 <- apply(cbind(caf3,cil3),1,function(x) { if(nchar(x[2])>nchar(x[1])) { x[2] } else { x[1] } })
+  # change the names in both files to match the set of common longer names
+  colnames(AFF)[match(caf3,colnames(AFF))] <- ind3
+  colnames(ILL)[match(cil3,colnames(ILL))] <- ind3
+  # run the intersection again
+  ind <- intersect(colnames(AFF),colnames(ILL))
+  #optionally display those failing the matching (unique in one set or the other)
+  if(print.fails) {
+    caf <- colnames(AFF)[!colnames(AFF) %in% ind]
+    cil <- colnames(ILL)[!colnames(ILL) %in% ind]
+    if(length(caf)>0 | length(cil)>0) { print(rbind(sort(caf),sort(cil))) }
+  }
+  if(verbose){ cat("#affy:",ncol(AFF),"; #illu:",ncol(ILL),"; common:",length(ind),"\n") }
+  AFF <- AFF[,ind]
+  ILL <- ILL[,colnames(AFF)]
+  if(row.names) { AFF <- t(AFF); ILL <- t(ILL) }
+  return(list(AFF,ILL))
+}
+
+
+get.common.aff.ill.names <- function(chr=22,full.names=FALSE, full.dir1=TRUE,
+                        dir1="OUTPUT_AFFY",dir2="OUTPUT_ILLU") {
+  ii <- list.files(dir1,pattern=paste0("impute-",chr,"-"),full.names=full.names)
+  af.fn <- ii[c(grep("SnpMatrix",ii))]
+  ii <- list.files(dir2,pattern=paste0("impute-",chr,"-"),full.names=full.names)
+  il.fn <- ii[c(grep("SnpMatrix",ii))] 
+  if(full.dir1) { oo <- c(il.fn,af.fn) } else { oo <- c(af.fn,il.fn) }
+  oo <- oo[duplicated(basename(oo))]
+  return(oo)
+}
+
+combine.affy.illu <- function(fn,dir1="OUTPUT_AFFY",dir2="OUTPUT_ILLU",verbose=TRUE) {
+  AFF <- reader(cat.path(dir1,fn)); if(verbose) { cat("read",cat.path(dir1,fn),"\n")}
+  ILL <- reader(cat.path(dir2,fn)); if(verbose) { cat("read",cat.path(dir2,fn),"\n")}
+  lister <- best.match.to.common.snps(AFF,ILL,verbose=verbose,print.fails=FALSE) 
+  AFF <- lister[[1]]; ILL <- lister[[2]] # should have equal colnames
+  if(any(colnames(AFF)!=colnames(ILL))) { stop("mismatching column names in AFF and ILL even after running 'best.match.to.common.snps()'") }
+#  if(verbose){ cat("#affy:",ncol(AFF),"; #illu:",ncol(ILL),"; common:",length(ind),"\n") }
+#  AFF <- AFF[,ind]
+#  ILL <- ILL[,colnames(AFF)]
+  COMB <- rbind(AFF,ILL)
+  if(any(nchar(colnames(COMB))>127)) { colnames(COMB) <- substr(colnames(COMB),1,127) }
+  return(COMB)
+}
+
+get.aff.ill.vec <- function(X,null.val=NA) {
+  if(!exists("all.ill.ids") | !exists("all.affy.ids")) { stop("this function requires both global measures all.affy.ids and all.ill.ids to be in the current environment") }
+  x <- rownames(X)
+  grp <- rep(null.val,length(x)) 
+  grp[x %in% all.ill.ids] <- 2
+  grp[x %in% all.affy.ids] <- 1
+  return(grp)
+}
+
+
+snp.test.chr <- function(chrz=21:22,base.dir="~/barrett", prog.dir="~/barrett/SNPTEST", out.dir="~/barrett/SNPTEST/SNPTEST_OUTPUT/",samp.fn="barrett.sample", snp.test.cmd="~/snptest_v2.5.1_linux_x86_64_static/snptest_v2.5.1", excl.fn=NULL,out.fn="snptestResultsChr", imp.dir="~/barrett/OUTPUT/", log.pref="SNPtst", bayesian=FALSE,method=if(bayesian) { "score" } else { "em" }, max.conc=10, stagger=30,grid.name="eightcpu") {	
+	
+ all.L1000 <- numeric(22)
+
+ dirb <- prog.dir
+
+ unlink(list.files(cat.path(dirb,"complete_flags"),full.names=T))
+ for (cchr in chrz) {
+  Header(cchr)
+  # frequentist analysis by SNPTEST of 1 chr's impute output files #
+  fnz <- get.impute.chr.fn(imp.dir,chr=cchr,full.names=T)
+
+  fn.s <- cat.path(dirb, samp.fn)
+  lf <- length(fnz)
+  system(paste("cd", base.dir)); setwd(base.dir)
+  kk <- proc.time(); 
+  cmd.list <- vector("list",lf)
+  for (cc in 1:lf) {
+    cmd <- character(3)
+    fn.o <- fnz[cc]
+    fn.g <- cat.path("",rmv.ext(fn.o,F),ext="gen")
+    fn.o1 <- cat.path(out.dir,basename(rmv.ext(fn.o,F)),ext="stf")
+    fn.o2 <- cat.path(out.dir,basename(rmv.ext(fn.o,F)),ext="stb")
+    cmd[1] <- paste0("mv ",fn.o," ",fn.g,"\n")
+    met.txt <- paste0(if(bayesian) { " -bayesian 1" } else { " -frequentist add" }," -method ",method)
+    cmd[2] <- paste0(snp.test.cmd," -data ",fn.g," ",fn.s,"  -o ",fn.o1,met.txt," -pheno phenotype ",if(is.character(excl.fn)) { paste("-exclude_samples",excl.fn) } else { "" },"\n") 
+    cmd[3] <- paste0("mv ",fn.g," ",fn.o,"\n")
+    cmd.list[[cc]] <- cmd
+    #loop.tracker(cc,lf,st.time=kk)
+  }
+
+  all.cmds <- sapply(cmd.list,function(x){ paste(x,collapse="; ") })
+  bash.qsub(all.cmds,dir=dirb,grid.name=grid.name,logpref=paste0(log.pref,"_",cchr,"_"),stagger=stagger,max.conc= max.conc) # in prog
+
+  freq.files <- cat.path(out.dir,basename(rmv.ext(fnz,F)),ext="stf") 
+  freq.list <- lapply(freq.files,read.table,header=T)
+  freq.results <- do.call("rbind",args=freq.list)
+  xx <- freq.results$frequentist_add_pvalue
+
+  lambda.nxt <- round(median(p.to.Z(xx)^2,na.rm=T)/.454,3)
+  lambda.1000 <- lambda_nm(lambda.nxt,nr=9110,mr=6158)
+  cat("Lambda 1000 for chr",cchr,":",lambda.1000,"\n")
+  all.L1000[cchr] <- lambda.1000
+
+  save(freq.results,all.L1000,file=cat.path(dirb,fn=out.fn,suf=cchr,ext="RData"))
+  unlink(list.files(cat.path(dirb,"complete_flags"),full.names=T))
+ }
+
+}
+
+
+
+mclapply.retries <- function(X,...,mc.cores=1,fail.after=10,detect.failure=is.null,VERBOSE=TRUE) {
+  n <- length(X)
+  nparts <- rep(FALSE,n); counter <- 0
+  result <- mclapply(X,...,mc.cores=mc.cores)
+  fails <- sapply(result, detect.failure)
+  nparts[!fails] <- TRUE
+  while(!all(nparts)) {
+    counter <- counter + 1;
+    if(counter>fail.after) { stop("too many failures, stopping") }
+    if(VERBOSE ) { cat("running retry #",counter,"for",length(which(!nparts)),"failing jobs with",mc.cores,"cores\n") }
+    REZ <- mclapply(X[which(!nparts)],..., mc.cores= mc.cores) 
+    prv(REZ)
+    result[which(!nparts)] <- REZ
+    fails <- sapply(result, detect.failure)
+    nparts[!fails] <- TRUE
+    if(VERBOSE ) { cat("Job failures for list elements: ",paste(which(!nparts),collapse=","),"\n") }
+    if(mc.cores>1) { mc.cores <- mc.cores-1 }
+  }
+  return(result)
+}
+
