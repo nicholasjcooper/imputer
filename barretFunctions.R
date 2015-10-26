@@ -68,17 +68,24 @@ cohort.alignment.check <- function(snpmat,cohort=NULL,sample.info=NULL) {
 
 
 # create a phenotype vector to match an  aSnpMatrix
-get.pheno <- function(X,sample.info,verbose=TRUE) {
+# if the result should be a dependent variable in a logitistic regression
+# (typical of phenotype) then DV should equal true to convert 1,2 coded
+# data to 0,1 coded data if necessary. If it's just an independent variable
+# being imported, then set DV=FALSE.
+get.pheno <- function(X,sample.info,verbose=TRUE,col.name="phenotype",DV=TRUE) {
   if(is(X)[1] %in% c("aSnpMatrix","aXSnpMatrix")) {
     ii <- match(rownames(samples(X)),rownames(sample.info))
   } else {
     ii <- match(rownames(X),rownames(sample.info))
   }
-  ph <- sample.info$phenotype[ii]-1
+  if(!col.name %in% colnames(sample.info)) { stop("col.name ",col.name," not found in sample.info") }
+  ph <- (sample.info[,"phenotype"][ii])
+  ll <- length(narm(ph))
+  if(length(which(narm(as.numeric(paste(ph))) %in% c(1,2)))/ll > .9 & DV) { ph <- ph-1 }
   if(verbose) {  print(table(ph,exclude=NULL))  }
   mmm <- which(is.na(ph))
   if(length(mmm)>0) { 
-    if(verbose) { message("found ",length(mmm)," missing values in phenotype") }
+    if(verbose) { message("found ",length(mmm)," missing values in ",col.name) }
   }   
   return(ph)
 }
@@ -863,8 +870,7 @@ get.aff.ill.vec <- function(X,null.val=NA) {
 }
 
 
-snp.test.chr <- function(chrz=21:22,base.dir="~/barrett", prog.dir="~/barrett/SNPTEST", out.dir="~/barrett/SNPTEST/SNPTEST_OUTPUT/",samp.fn="barrett.sample", snp.test.cmd="~/snptest_v2.5.1_linux_x86_64_static/snptest_v2.5.1", excl.fn=NULL,out.fn="snptestResultsChr", imp.dir="~/barrett/OUTPUT/", log.pref="SNPtst", bayesian=FALSE,method=if(bayesian) { "score" } else { "em" }, max.conc=10, stagger=30,grid.name="eightcpu") {	
-	
+snp.test.chr <- function(chrz=21:22,base.dir="~/barrett", prog.dir="~/barrett/SNPTEST", out.dir="~/barrett/SNPTEST/SNPTEST_OUTPUT/",samp.fn="barrett.sample", snp.test.cmd="~/snptest_v2.5.1_linux_x86_64_static/snptest_v2.5.1", excl.fn=NULL,out.fn="snptestResultsChr", imp.dir="~/barrett/OUTPUT/", log.pref="SNPtst", bayesian=FALSE,method=if(bayesian) { "score" } else { "em" }, covariates=FALSE, max.conc=10, stagger=30,grid.name="eightcpu") {		
  all.L1000 <- numeric(22)
 
  dirb <- prog.dir
@@ -888,7 +894,7 @@ snp.test.chr <- function(chrz=21:22,base.dir="~/barrett", prog.dir="~/barrett/SN
     fn.o2 <- cat.path(out.dir,basename(rmv.ext(fn.o,F)),ext="stb")
     cmd[1] <- paste0("mv ",fn.o," ",fn.g,"\n")
     met.txt <- paste0(if(bayesian) { " -bayesian 1" } else { " -frequentist add" }," -method ",method)
-    cmd[2] <- paste0(snp.test.cmd," -data ",fn.g," ",fn.s,"  -o ",fn.o1,met.txt," -pheno phenotype ",if(is.character(excl.fn)) { paste("-exclude_samples",excl.fn) } else { "" },"\n") 
+    cmd[2] <- paste0(snp.test.cmd," -data ",fn.g," ",fn.s,"  -o ",fn.o1,met.txt," -pheno phenotype ",if(is.character(excl.fn)) { paste("-exclude_samples",excl.fn) } else { "" },if(covariates) {" -cov_all_discrete "} else {""}."\n") 
     cmd[3] <- paste0("mv ",fn.g," ",fn.o,"\n")
     cmd.list[[cc]] <- cmd
     #loop.tracker(cc,lf,st.time=kk)
