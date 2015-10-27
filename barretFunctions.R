@@ -894,7 +894,7 @@ snp.test.chr <- function(chrz=21:22,base.dir="~/barrett", prog.dir="~/barrett/SN
     fn.o2 <- cat.path(out.dir,basename(rmv.ext(fn.o,F)),ext="stb")
     cmd[1] <- paste0("mv ",fn.o," ",fn.g,"\n")
     met.txt <- paste0(if(bayesian) { " -bayesian 1" } else { " -frequentist add" }," -method ",method)
-    cmd[2] <- paste0(snp.test.cmd," -data ",fn.g," ",fn.s,"  -o ",fn.o1,met.txt," -pheno phenotype ",if(is.character(excl.fn)) { paste("-exclude_samples",excl.fn) } else { "" },if(covariates) {" -cov_all_discrete "} else {""}."\n") 
+    cmd[2] <- paste0(snp.test.cmd," -data ",fn.g," ",fn.s,"  -o ",fn.o1,met.txt," -pheno phenotype ",if(is.character(excl.fn)) { paste("-exclude_samples",excl.fn) } else { "" },if(covariates) {" -cov_all_discrete "} else {""},"\n") 
     cmd[3] <- paste0("mv ",fn.g," ",fn.o,"\n")
     cmd.list[[cc]] <- cmd
     #loop.tracker(cc,lf,st.time=kk)
@@ -908,8 +908,14 @@ snp.test.chr <- function(chrz=21:22,base.dir="~/barrett", prog.dir="~/barrett/SN
   freq.results <- do.call("rbind",args=freq.list)
   xx <- freq.results$frequentist_add_pvalue
 
+  ii <- reader(fn.s)
+  vals <- as.numeric(tail(sort(table(ii$phenotype)),2))
+  if(any(is.na(vals))) { 
+     vals <- c(1000,1000)
+     warning("warning: failed reading sample file phenotypes, lambda1000 values will be lambda (un-adjusted)")
+  }
   lambda.nxt <- round(median(p.to.Z(xx)^2,na.rm=T)/.454,3)
-  lambda.1000 <- lambda_nm(lambda.nxt,nr=9110,mr=6158)
+  lambda.1000 <- lambda_nm(lambda.nxt,nr=vals[1],mr=vals[2])
   cat("Lambda 1000 for chr",cchr,":",lambda.1000,"\n")
   all.L1000[cchr] <- lambda.1000
 
