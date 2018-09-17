@@ -401,8 +401,10 @@ add.dirs.to.result <- function(result,s1,pheno) {
   result[["interp"]][with(result,caseway=="CasesRef-" & majmin=="minor")] <- "T1D Major+"
   result[["interp"]][with(result,caseway=="CasesRef-" & majmin=="major")] <- "T1D Minor+"
   result[["OR_orig"]] <- result$OR
-  result[["OR"]][result$OR>1 & result$interp=="T1D Major+"] <- 1/(result[["OR"]][result$OR>1 & result$interp=="T1D Major+"])
-  result[["OR"]][result$OR<1 & result$interp=="T1D Minor+"] <- 1/(result[["OR"]][result$OR<1 & result$interp=="T1D Minor+"])
+  sel <- which(result$OR>1 & result$interp=="T1D Major+")
+  result[["OR"]][sel] <- 1/(result[["OR"]][sel])
+  sel <- which(result$OR<1 & result$interp=="T1D Minor+")
+  result[["OR"]][sel] <- 1/(result[["OR"]][sel])
   return(result)
 }
 
